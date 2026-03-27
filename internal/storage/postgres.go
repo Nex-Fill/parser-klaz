@@ -172,6 +172,27 @@ func (p *Postgres) QueryAdIDs(ctx context.Context, query string, args ...interfa
 	return ids, nil
 }
 
+func (p *Postgres) GetAdsWithoutImages(ctx context.Context, limit int) ([]string, error) {
+	rows, err := p.pool.Query(ctx, `
+		SELECT a.id FROM ads a
+		WHERE a.is_active = true AND a.is_deleted = false
+			AND NOT EXISTS (SELECT 1 FROM ad_images ai WHERE ai.ad_id = a.id)
+		ORDER BY a.first_seen_at DESC
+		LIMIT $1`, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var ids []string
+	for rows.Next() {
+		var id string
+		if rows.Scan(&id) == nil {
+			ids = append(ids, id)
+		}
+	}
+	return ids, nil
+}
+
 func (p *Postgres) GetAdCount(ctx context.Context) (int64, error) {
 	var count int64
 	err := p.pool.QueryRow(ctx, "SELECT COUNT(*) FROM ads WHERE is_active = true").Scan(&count)

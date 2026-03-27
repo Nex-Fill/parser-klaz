@@ -150,6 +150,29 @@ func (m *Manager) StartAutoParseLoop(ctx context.Context) {
 	log.Info().Msg("auto-parse loop started (deep first, then shallow)")
 }
 
+func (m *Manager) StartImageLoaderLoop(ctx context.Context) {
+	go func() {
+		time.Sleep(30 * time.Second)
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			default:
+			}
+			m.parseLock.Lock()
+			m.scraper.LoadMissingImages(ctx, 500)
+			m.parseLock.Unlock()
+
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(5 * time.Minute):
+			}
+		}
+	}()
+	log.Info().Msg("image loader loop started (every 5 min, 500 ads/batch)")
+}
+
 func (m *Manager) StartMetricsRefreshLoop(ctx context.Context) {
 	go func() {
 		ticker := time.NewTicker(5 * time.Minute)

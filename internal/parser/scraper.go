@@ -711,6 +711,48 @@ func (s *Scraper) trackChanges(ctx context.Context, old, new *kl.Ad) {
 	}
 }
 
+// ==================== IMAGE LOADER ====================
+
+func (s *Scraper) LoadMissingImages(ctx context.Context, batchSize int) error {
+	if s.media == nil || !s.liveConfig.Get().ImageUploadEnabled {
+		return nil
+	}
+
+	ids, err := s.db.GetAdsWithoutImages(ctx, batchSize)
+	if err != nil || len(ids) == 0 {
+		return err
+	}
+
+	log.Info().Int("count", len(ids)).Msg("loading missing images")
+
+	var wg sync.WaitGroup
+	for _, id := range ids {
+		id := id
+		wg.Add(1)
+		s.pool.Submit(func() {
+			defer wg.Done()
+
+			body, err := s.doRequest(ctx, kl.BuildAdURL(id))
+			if err != nil {
+				return
+			}
+			_, photos, err := kl.ParseAdResponse(body)
+			if err != nil || len(photos) == 0 {
+				return
+			}
+
+			images, err := s.media.ProcessImages(ctx, id, photos)
+			if err == nil && len(images) > 0 {
+				s.db.UpsertImages(ctx, images)
+			}
+		})
+	}
+	wg.Wait()
+
+	log.Info().Int("processed", len(ids)).Msg("missing images loaded")
+	return nil
+}
+
 // ==================== CATEGORY SYNC ====================
 
 func (s *Scraper) SyncCategories(ctx context.Context) error {
