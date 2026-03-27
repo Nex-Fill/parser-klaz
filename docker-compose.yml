@@ -42,40 +42,14 @@ services:
       dockerfile: Dockerfile
     ports:
       - "8080:8080"
+    env_file:
+      - .env
     environment:
-      SERVER_HOST: "0.0.0.0"
-      SERVER_PORT: "8080"
-
       DB_HOST: postgres
       DB_PORT: "5432"
-      DB_USER: klaz
-      DB_PASSWORD: klaz
-      DB_NAME: klaz
-      DB_SSLMODE: disable
-      DB_MAX_CONNS: "50"
-      DB_MIN_CONNS: "10"
-
       REDIS_HOST: redis
       REDIS_PORT: "6379"
-      REDIS_CACHE_TTL: "5m"
-
-      S3_ACCESS_KEY: ${S3_ACCESS_KEY}
-      S3_SECRET_KEY: ${S3_SECRET_KEY}
-      S3_ENDPOINT: s3.eu-central-1.wasabisys.com
-      S3_REGION: eu-central-1
-      S3_BUCKET_ORIGINALS: klaz-photos-originals
-      S3_BUCKET_PREVIEWS: klaz-photos-preview
-
       PROXY_FILE: ""
-
-      PARSE_WORKERS: "50"
-      IMAGE_WORKERS: "20"
-      CHECK_WORKERS: "30"
-      MAX_CONCURRENT: "100"
-      BATCH_SIZE: "20"
-      PAGE_SIZE: "100"
-      MAX_PAGES_PER_CAT: "50"
-      RECHECK_INTERVAL: "1h"
     depends_on:
       postgres:
         condition: service_healthy
