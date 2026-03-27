@@ -23,6 +23,7 @@ type Manager struct {
 	mu      sync.RWMutex
 
 	recheckCancel context.CancelFunc
+	parseLock     sync.Mutex
 }
 
 func NewManager(db *storage.Postgres, cache *storage.Cache, scraper *parser.Scraper) *Manager {
@@ -44,8 +45,10 @@ func (m *Manager) StartPriorityRecheckLoop(ctx context.Context) {
 
 	go func() {
 		time.Sleep(10 * time.Second)
+		m.parseLock.Lock()
 		log.Info().Msg("running initial priority recheck")
 		m.scraper.RecheckByPriority(ctx)
+		m.parseLock.Unlock()
 
 		ticker := time.NewTicker(30 * time.Minute)
 		defer ticker.Stop()
@@ -55,10 +58,12 @@ func (m *Manager) StartPriorityRecheckLoop(ctx context.Context) {
 			case <-ctx.Done():
 				return
 			case <-ticker.C:
+				m.parseLock.Lock()
 				log.Info().Msg("priority recheck cycle")
 				if err := m.scraper.RecheckByPriority(ctx); err != nil {
 					log.Error().Err(err).Msg("priority recheck failed")
 				}
+				m.parseLock.Unlock()
 			}
 		}
 	}()
@@ -109,6 +114,7 @@ func (m *Manager) StartAutoParseLoop(ctx context.Context) {
 				Str("mode", label).
 				Msg("auto-parse: starting")
 
+			m.parseLock.Lock()
 			start := time.Now()
 
 			task := &kl.ParseTask{
@@ -123,6 +129,8 @@ func (m *Manager) StartAutoParseLoop(ctx context.Context) {
 			}
 
 			m.scraper.RunTask(ctx, task)
+
+			m.parseLock.Unlock()
 
 			log.Info().
 				Dur("took", time.Since(start)).
