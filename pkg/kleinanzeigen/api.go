@@ -257,6 +257,8 @@ func ParseSearchResponse(body []byte) (*SearchResult, error) {
 		}
 	}
 
+	result.Raw = adsMap
+
 	adList, ok := adsMap["ad"].([]interface{})
 	if !ok {
 		return result, nil
@@ -275,6 +277,107 @@ func ParseSearchResponse(body []byte) (*SearchResult, error) {
 	}
 
 	return result, nil
+}
+
+func ParseAdFromSearchResult(raw map[string]interface{}) (*Ad, []string) {
+	now := time.Now()
+	ad := &Ad{
+		IsActive:    true,
+		FirstSeenAt: now,
+		CreatedAt:   now,
+		UpdatedAt:   now,
+	}
+
+	if v, ok := raw["id"].(string); ok {
+		ad.ID = v
+	}
+	if t, ok := raw["title"].(map[string]interface{}); ok {
+		if v, ok := t["value"].(string); ok {
+			ad.Title = v
+		}
+	}
+	if d, ok := raw["description"].(map[string]interface{}); ok {
+		if v, ok := d["value"].(string); ok {
+			ad.Description = strings.ReplaceAll(v, "<br />", "\n")
+		}
+	}
+	if p, ok := raw["price"].(map[string]interface{}); ok {
+		if amt, ok := p["amount"].(map[string]interface{}); ok {
+			if v, ok := amt["value"].(float64); ok {
+				ad.Price = int64(v)
+				ad.PriceEUR = v
+			}
+		}
+	}
+	if v := getNestedString(raw, "ad-status", "value"); v != "" {
+		ad.AdStatus = v
+	}
+	if v := getNestedString(raw, "poster-type", "value"); v != "" {
+		ad.PosterType = v
+	}
+	if v := getNestedString(raw, "start-date-time", "value"); v != "" {
+		ad.StartDate = v
+	}
+	if v := getNestedString(raw, "contact-name", "value"); v != "" {
+		ad.ContactName = v
+	}
+	if v := getNestedString(raw, "user-id", "value"); v != "" {
+		ad.UserID = v
+	}
+	if v := getNestedString(raw, "user-since-date-time", "value"); v != "" {
+		ad.UserSinceDate = v
+	}
+	if cat, ok := raw["category"].(map[string]interface{}); ok {
+		if v, ok := cat["id"].(string); ok {
+			ad.CategoryID = v
+		}
+	}
+	if locs, ok := raw["locations"].(map[string]interface{}); ok {
+		if locList, ok := locs["location"].([]interface{}); ok && len(locList) > 0 {
+			if loc, ok := locList[0].(map[string]interface{}); ok {
+				if v, ok := loc["id"].(string); ok {
+					ad.LocationID = v
+				}
+			}
+		}
+	}
+	if shipping, ok := raw["shipping-options"].(map[string]interface{}); ok {
+		if opts, ok := shipping["shipping-option"].([]interface{}); ok && len(opts) > 0 {
+			if opt, ok := opts[0].(map[string]interface{}); ok {
+				if v, ok := opt["id"].(string); ok {
+					ad.ShippingOption = v
+				}
+			}
+		}
+	}
+	if v := getNestedString(raw, "seller-account-type", "value"); v != "" {
+		ad.SellerAccountType = v
+	}
+	if v := getNestedString(raw, "last-user-edit-date", "value"); v != "" {
+		ad.LastEditDate = v
+	}
+	if buyNow, ok := raw["buy-now"].(map[string]interface{}); ok {
+		if sel, ok := buyNow["selected"].(string); ok && sel == "true" {
+			ad.BuyNowEnabled = true
+		}
+	}
+
+	ad.URL = AdPublicURL(ad.ID)
+
+	var photos []string
+	if pics, ok := raw["pictures"].(map[string]interface{}); ok {
+		if picList, ok := pics["picture"].([]interface{}); ok {
+			for _, p := range picList {
+				if pic, ok := p.(map[string]interface{}); ok {
+					if u := extractBestImageURL(pic); u != "" {
+						photos = append(photos, u)
+					}
+				}
+			}
+		}
+	}
+
+	return ad, photos
 }
 
 func ImageHash(data []byte) string {

@@ -76,8 +76,9 @@ type SearchParams struct {
 }
 
 type SearchResult struct {
-	Ads    []RawAd    `json:"ads"`
-	Paging PagingInfo `json:"paging"`
+	Ads    []RawAd                `json:"ads"`
+	Paging PagingInfo             `json:"paging"`
+	Raw    map[string]interface{} `json:"-"`
 }
 
 type RawAd struct {

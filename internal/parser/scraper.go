@@ -179,8 +179,11 @@ func (s *Scraper) parseCategory(ctx context.Context, task *kl.ParseTask, catID s
 func (s *Scraper) processBatch(ctx context.Context, task *kl.ParseTask, rawAds []kl.RawAd, catID string) (found, checked int) {
 	batchSize := s.cfg.BatchSize
 	if batchSize <= 0 {
-		batchSize = 20
+		batchSize = 50
 	}
+	skipViews := strings.HasPrefix(task.ID, "auto_")
+	skipImages := skipViews && !s.liveConfig.Get().ImageUploadEnabled
+
 	for i := 0; i < len(rawAds); i += batchSize {
 		end := i + batchSize
 		if end > len(rawAds) {
@@ -198,7 +201,14 @@ func (s *Scraper) processBatch(ctx context.Context, task *kl.ParseTask, rawAds [
 			wg.Add(1)
 			s.pool.Submit(func() {
 				defer wg.Done()
-				ad, photos, err := s.fetchAndParseAd(ctx, raw.ID)
+				var ad *kl.Ad
+				var photos []string
+				var err error
+				if skipViews {
+					ad, photos, err = s.fetchAndParseAdFast(ctx, raw.ID)
+				} else {
+					ad, photos, err = s.fetchAndParseAd(ctx, raw.ID)
+				}
 				if err != nil {
 					return
 				}
@@ -208,7 +218,7 @@ func (s *Scraper) processBatch(ctx context.Context, task *kl.ParseTask, rawAds [
 					return
 				}
 				var images []kl.AdImage
-				if s.media != nil && len(photos) > 0 {
+				if !skipImages && s.media != nil && len(photos) > 0 {
 					images, _ = s.media.ProcessImages(ctx, ad.ID, photos)
 				}
 				s.snapBuf.Record(ad.ID, ad.Views, ad.PriceEUR)
@@ -221,23 +231,53 @@ func (s *Scraper) processBatch(ctx context.Context, task *kl.ParseTask, rawAds [
 		}
 		wg.Wait()
 		checked += len(batch)
-
-		if len(ads) > 0 {
-			if err := s.db.UpsertAdsBatch(ctx, ads); err != nil {
-				log.Error().Err(err).Msg("batch upsert failed")
-			}
-			s.cache.CacheAdsBatch(ctx, ads)
-			found += len(ads)
-		}
-		if len(allImages) > 0 {
-			s.db.UpsertImages(ctx, allImages)
-		}
-		time.Sleep(100 * time.Millisecond)
 	}
 	return
 }
 
 func (s *Scraper) fetchAndParseAd(ctx context.Context, adID string) (*kl.Ad, []string, error) {
+	type adResult struct {
+		body []byte
+		err  error
+	}
+	type viewsResult struct {
+		views int
+		err   error
+	}
+
+	adCh := make(chan adResult, 1)
+	viewsCh := make(chan viewsResult, 1)
+
+	go func() {
+		body, err := s.doRequest(ctx, kl.BuildAdURL(adID))
+		adCh <- adResult{body, err}
+	}()
+	go func() {
+		v, err := s.fetchViews(ctx, adID)
+		viewsCh <- viewsResult{v, err}
+	}()
+
+	ar := <-adCh
+	if ar.err != nil {
+		<-viewsCh
+		return nil, nil, fmt.Errorf("fetch ad %s: %w", adID, ar.err)
+	}
+
+	ad, photos, err := kl.ParseAdResponse(ar.body)
+	if err != nil {
+		<-viewsCh
+		return nil, nil, fmt.Errorf("parse ad %s: %w", adID, err)
+	}
+
+	vr := <-viewsCh
+	if vr.err == nil {
+		ad.Views = vr.views
+	}
+
+	return ad, photos, nil
+}
+
+func (s *Scraper) fetchAndParseAdFast(ctx context.Context, adID string) (*kl.Ad, []string, error) {
 	body, err := s.doRequest(ctx, kl.BuildAdURL(adID))
 	if err != nil {
 		return nil, nil, fmt.Errorf("fetch ad %s: %w", adID, err)
@@ -245,9 +285,6 @@ func (s *Scraper) fetchAndParseAd(ctx context.Context, adID string) (*kl.Ad, []s
 	ad, photos, err := kl.ParseAdResponse(body)
 	if err != nil {
 		return nil, nil, fmt.Errorf("parse ad %s: %w", adID, err)
-	}
-	if views, err := s.fetchViews(ctx, adID); err == nil {
-		ad.Views = views
 	}
 	return ad, photos, nil
 }
