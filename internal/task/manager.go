@@ -65,6 +65,67 @@ func (m *Manager) StartPriorityRecheckLoop(ctx context.Context) {
 	log.Info().Msg("priority recheck loop started (every 30 min)")
 }
 
+// StartAutoParseLoop continuously parses ALL categories for new ads.
+// Runs forever: parse all categories → wait 10 min → repeat.
+func (m *Manager) StartAutoParseLoop(ctx context.Context) {
+	go func() {
+		time.Sleep(15 * time.Second)
+
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			default:
+			}
+
+			log.Info().Msg("auto-parse: starting full category scan")
+			start := time.Now()
+
+			cats, err := m.db.GetAllCategories(ctx)
+			if err != nil || len(cats) == 0 {
+				log.Warn().Err(err).Msg("auto-parse: no categories, waiting")
+				time.Sleep(5 * time.Minute)
+				continue
+			}
+
+			var catURLs []string
+			for _, cat := range cats {
+				if cat.HasChildren {
+					continue
+				}
+				catURLs = append(catURLs, "https://www.kleinanzeigen.de/s-cat/"+cat.ID)
+			}
+
+			log.Info().Int("categories", len(catURLs)).Msg("auto-parse: leaf categories to scan")
+
+			task := &kl.ParseTask{
+				ID:                  fmt.Sprintf("auto_%d", time.Now().UnixMilli()),
+				Name:                "Auto Parse All Categories",
+				Status:              kl.TaskRunning,
+				CategoryURLs:        catURLs,
+				MaxPagesPerCategory: 2,
+				Progress:            kl.TaskProgress{TotalCategories: len(catURLs)},
+				CreatedAt:           time.Now(),
+				UpdatedAt:           time.Now(),
+			}
+
+			m.scraper.RunTask(ctx, task)
+
+			log.Info().
+				Dur("took", time.Since(start)).
+				Int("found", task.AdsCount).
+				Msg("auto-parse: cycle complete")
+
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(10 * time.Minute):
+			}
+		}
+	}()
+	log.Info().Msg("auto-parse loop started (continuous)")
+}
+
 func (m *Manager) StartMetricsRefreshLoop(ctx context.Context) {
 	go func() {
 		ticker := time.NewTicker(5 * time.Minute)
