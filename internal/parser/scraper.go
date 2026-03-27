@@ -158,6 +158,18 @@ func (s *Scraper) parseCategory(ctx context.Context, task *kl.ParseTask, catID s
 			break
 		}
 
+		for _, raw := range searchResult.Ads {
+			if raw.ID != "" && raw.Raw != nil {
+				if p, ok := raw.Raw["price"].(map[string]interface{}); ok {
+					if amt, ok := p["amount"].(map[string]interface{}); ok {
+						if v, ok := amt["value"].(float64); ok && v > 0 {
+							s.snapBuf.Record(raw.ID, 0, v)
+						}
+					}
+				}
+			}
+		}
+
 		pf, pc := s.processBatch(ctx, task, searchResult.Ads, catID)
 		found += pf
 		checked += pc
