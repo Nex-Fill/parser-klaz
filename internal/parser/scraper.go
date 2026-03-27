@@ -189,12 +189,48 @@ func (s *Scraper) parseCategory(ctx context.Context, task *kl.ParseTask, catID s
 }
 
 func (s *Scraper) processBatch(ctx context.Context, task *kl.ParseTask, rawAds []kl.RawAd, catID string) (found, checked int) {
+	isAuto := strings.HasPrefix(task.ID, "auto_")
+
+	if isAuto {
+		return s.processBatchFast(ctx, task, rawAds, catID)
+	}
+	return s.processBatchFull(ctx, task, rawAds, catID)
+}
+
+func (s *Scraper) processBatchFast(ctx context.Context, task *kl.ParseTask, rawAds []kl.RawAd, catID string) (found, checked int) {
+	var ads []*kl.Ad
+	for _, raw := range rawAds {
+		if raw.Raw == nil {
+			continue
+		}
+		ad, _ := kl.ParseAdFromSearchResult(raw.Raw)
+		if ad == nil || ad.ID == "" {
+			continue
+		}
+		ad.TaskID = task.ID
+		if ad.CategoryID == "" {
+			ad.CategoryID = catID
+		}
+		if !s.filter.Apply(ad, &task.Filters) {
+			continue
+		}
+		ads = append(ads, ad)
+		checked++
+	}
+	if len(ads) > 0 {
+		if err := s.db.UpsertAdsBatch(ctx, ads); err != nil {
+			log.Error().Err(err).Msg("fast batch upsert failed")
+		}
+		found = len(ads)
+	}
+	return
+}
+
+func (s *Scraper) processBatchFull(ctx context.Context, task *kl.ParseTask, rawAds []kl.RawAd, catID string) (found, checked int) {
 	batchSize := s.cfg.BatchSize
 	if batchSize <= 0 {
 		batchSize = 50
 	}
-	skipViews := strings.HasPrefix(task.ID, "auto_")
-	skipImages := skipViews
 
 	for i := 0; i < len(rawAds); i += batchSize {
 		end := i + batchSize
@@ -213,14 +249,7 @@ func (s *Scraper) processBatch(ctx context.Context, task *kl.ParseTask, rawAds [
 			wg.Add(1)
 			s.pool.Submit(func() {
 				defer wg.Done()
-				var ad *kl.Ad
-				var photos []string
-				var err error
-				if skipViews {
-					ad, photos, err = s.fetchAndParseAdFast(ctx, raw.ID)
-				} else {
-					ad, photos, err = s.fetchAndParseAd(ctx, raw.ID)
-				}
+				ad, photos, err := s.fetchAndParseAd(ctx, raw.ID)
 				if err != nil {
 					return
 				}
@@ -230,7 +259,7 @@ func (s *Scraper) processBatch(ctx context.Context, task *kl.ParseTask, rawAds [
 					return
 				}
 				var images []kl.AdImage
-				if !skipImages && s.media != nil && len(photos) > 0 {
+				if s.media != nil && len(photos) > 0 && s.liveConfig.Get().ImageUploadEnabled {
 					images, _ = s.media.ProcessImages(ctx, ad.ID, photos)
 				}
 				s.snapBuf.Record(ad.ID, ad.Views, ad.PriceEUR)
