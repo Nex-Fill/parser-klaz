@@ -101,6 +101,36 @@ func (p *Postgres) UpsertAdsBatch(ctx context.Context, ads []*kl.Ad) error {
 	return nil
 }
 
+func (p *Postgres) UpsertAdsFromSearch(ctx context.Context, ads []*kl.Ad) error {
+	batch := &pgx.Batch{}
+	for _, ad := range ads {
+		batch.Queue(`
+			INSERT INTO ads (id, title, description, price, price_eur, contact_name,
+				category_id, location_id, ad_status, shipping_option, user_id,
+				user_since_date, poster_type, start_date, url, views, is_active,
+				is_deleted, task_id, first_seen_at, created_at, updated_at, last_checked_at)
+			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,NULL)
+			ON CONFLICT (id) DO UPDATE SET
+				title = EXCLUDED.title, description = EXCLUDED.description,
+				price = EXCLUDED.price, price_eur = EXCLUDED.price_eur,
+				ad_status = EXCLUDED.ad_status,
+				updated_at = EXCLUDED.updated_at`,
+			ad.ID, ad.Title, ad.Description, ad.Price, ad.PriceEUR, ad.ContactName,
+			ad.CategoryID, ad.LocationID, ad.AdStatus, ad.ShippingOption, ad.UserID,
+			ad.UserSinceDate, ad.PosterType, ad.StartDate, ad.URL, ad.Views, ad.IsActive,
+			ad.IsDeleted, ad.TaskID, ad.FirstSeenAt, ad.CreatedAt, ad.UpdatedAt,
+		)
+	}
+	results := p.pool.SendBatch(ctx, batch)
+	defer results.Close()
+	for range ads {
+		if _, err := results.Exec(); err != nil {
+			return fmt.Errorf("batch exec: %w", err)
+		}
+	}
+	return nil
+}
+
 func (p *Postgres) MarkAdDeleted(ctx context.Context, adID string) error {
 	now := time.Now()
 	_, err := p.pool.Exec(ctx, `

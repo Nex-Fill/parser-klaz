@@ -218,7 +218,7 @@ func (s *Scraper) processBatchFast(ctx context.Context, task *kl.ParseTask, rawA
 		checked++
 	}
 	if len(ads) > 0 {
-		if err := s.db.UpsertAdsBatch(ctx, ads); err != nil {
+		if err := s.db.UpsertAdsFromSearch(ctx, ads); err != nil {
 			log.Error().Err(err).Msg("fast batch upsert failed")
 		}
 		found = len(ads)

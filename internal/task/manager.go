@@ -104,7 +104,7 @@ func (m *Manager) StartAutoParseLoop(ctx context.Context) {
 			maxPages := 1
 			label := "shallow"
 			if firstRun {
-				maxPages = 50
+				maxPages = 500
 				label = "DEEP (first run)"
 			}
 
