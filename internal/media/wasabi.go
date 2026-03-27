@@ -18,6 +18,7 @@ import (
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
+	s3types "github.com/aws/aws-sdk-go-v2/service/s3/types"
 	"github.com/disintegration/imaging"
 	"github.com/panjf2000/ants/v2"
 	"github.com/rs/zerolog/log"
@@ -194,8 +195,24 @@ func (p *Pipeline) upload(ctx context.Context, bucket, key string, data []byte, 
 		Body:         bytes.NewReader(data),
 		ContentType:  aws.String(contentType),
 		CacheControl: aws.String("public, max-age=31536000, immutable"),
+		ACL:          s3types.ObjectCannedACLPublicRead,
 	})
 	return err
+}
+
+func (p *Pipeline) EnsureBucketsPublic(ctx context.Context) {
+	policy := `{"Version":"2012-10-17","Statement":[{"Sid":"PublicRead","Effect":"Allow","Principal":"*","Action":"s3:GetObject","Resource":"arn:aws:s3:::%s/*"}]}`
+	for _, bucket := range []string{p.bucketOriginals, p.bucketPreviews} {
+		_, err := p.s3Client.PutBucketPolicy(ctx, &s3.PutBucketPolicyInput{
+			Bucket: aws.String(bucket),
+			Policy: aws.String(fmt.Sprintf(policy, bucket)),
+		})
+		if err != nil {
+			log.Warn().Err(err).Str("bucket", bucket).Msg("failed to set bucket policy")
+		} else {
+			log.Info().Str("bucket", bucket).Msg("bucket set to public-read")
+		}
+	}
 }
 
 func (p *Pipeline) objectExists(ctx context.Context, bucket, key string) bool {

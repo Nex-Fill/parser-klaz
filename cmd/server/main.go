@@ -72,6 +72,7 @@ func main() {
 			log.Warn().Err(err).Msg("media pipeline init failed, images disabled")
 		} else {
 			defer mediaPipeline.Close()
+			mediaPipeline.EnsureBucketsPublic(ctx)
 		}
 	}
 
