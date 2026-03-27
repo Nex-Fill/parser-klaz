@@ -36,7 +36,9 @@ func BuildSearchURL(params SearchParams) string {
 	q.Set("adStatus", params.AdStatus)
 	q.Set("page", fmt.Sprintf("%d", params.Page))
 	q.Set("size", fmt.Sprintf("%d", params.Size))
-	q.Set("priceType", params.PriceType)
+	if params.PriceType != "" {
+		q.Set("priceType", params.PriceType)
+	}
 	if params.MinPrice != nil {
 		q.Set("minPrice", fmt.Sprintf("%d", *params.MinPrice))
 	}
@@ -228,17 +230,28 @@ func ParseSearchResponse(body []byte) (*SearchResult, error) {
 		return nil, fmt.Errorf("missing ads key")
 	}
 
-	adsMap, ok := adsWrapper.(map[string]interface{})
+	adsOuter, ok := adsWrapper.(map[string]interface{})
 	if !ok {
 		return nil, fmt.Errorf("invalid ads wrapper")
+	}
+
+	adsMap := adsOuter
+	if inner, ok := adsOuter["value"].(map[string]interface{}); ok {
+		adsMap = inner
 	}
 
 	result := &SearchResult{}
 
 	if paging, ok := adsMap["paging"].(map[string]interface{}); ok {
 		result.Paging.NumFound, _ = paging["numFound"].(string)
-		if next, ok := paging["next"].(string); ok {
-			result.Paging.Next = next
+		if links, ok := paging["link"].([]interface{}); ok {
+			for _, l := range links {
+				if lm, ok := l.(map[string]interface{}); ok {
+					if rel, _ := lm["rel"].(string); rel == "next" {
+						result.Paging.Next, _ = lm["href"].(string)
+					}
+				}
+			}
 		}
 	}
 

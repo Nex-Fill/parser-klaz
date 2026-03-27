@@ -138,7 +138,7 @@ func (s *Scraper) parseCategory(ctx context.Context, task *kl.ParseTask, catID s
 
 		params := kl.SearchParams{
 			CategoryID: catID, AdStatus: "ACTIVE",
-			Page: page, Size: s.cfg.PageSize, PriceType: "SPECIFIED_AMOUNT",
+			Page: page, Size: s.cfg.PageSize,
 		}
 		if task.Filters.PriceMin != nil {
 			v := int(*task.Filters.PriceMin)
