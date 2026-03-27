@@ -66,10 +66,13 @@ func (m *Manager) StartPriorityRecheckLoop(ctx context.Context) {
 }
 
 // StartAutoParseLoop continuously parses ALL categories for new ads.
-// Runs forever: parse all categories → wait 10 min → repeat.
+// First run: deep scan (50 pages per category) to fill the database.
+// Subsequent runs: shallow scan (1 page) to catch only new ads.
+// Cycle: parse → wait 10 min → repeat.
 func (m *Manager) StartAutoParseLoop(ctx context.Context) {
 	go func() {
 		time.Sleep(15 * time.Second)
+		firstRun := true
 
 		for {
 			select {
@@ -77,9 +80,6 @@ func (m *Manager) StartAutoParseLoop(ctx context.Context) {
 				return
 			default:
 			}
-
-			log.Info().Msg("auto-parse: starting full category scan")
-			start := time.Now()
 
 			cats, err := m.db.GetAllCategories(ctx)
 			if err != nil || len(cats) == 0 {
@@ -96,14 +96,27 @@ func (m *Manager) StartAutoParseLoop(ctx context.Context) {
 				catURLs = append(catURLs, "https://www.kleinanzeigen.de/s-cat/"+cat.ID)
 			}
 
-			log.Info().Int("categories", len(catURLs)).Msg("auto-parse: leaf categories to scan")
+			maxPages := 1
+			label := "shallow"
+			if firstRun {
+				maxPages = 50
+				label = "DEEP (first run)"
+			}
+
+			log.Info().
+				Int("categories", len(catURLs)).
+				Int("max_pages", maxPages).
+				Str("mode", label).
+				Msg("auto-parse: starting")
+
+			start := time.Now()
 
 			task := &kl.ParseTask{
 				ID:                  fmt.Sprintf("auto_%d", time.Now().UnixMilli()),
-				Name:                "Auto Parse All Categories",
+				Name:                "Auto Parse " + label,
 				Status:              kl.TaskRunning,
 				CategoryURLs:        catURLs,
-				MaxPagesPerCategory: 2,
+				MaxPagesPerCategory: maxPages,
 				Progress:            kl.TaskProgress{TotalCategories: len(catURLs)},
 				CreatedAt:           time.Now(),
 				UpdatedAt:           time.Now(),
@@ -114,7 +127,10 @@ func (m *Manager) StartAutoParseLoop(ctx context.Context) {
 			log.Info().
 				Dur("took", time.Since(start)).
 				Int("found", task.AdsCount).
+				Str("mode", label).
 				Msg("auto-parse: cycle complete")
+
+			firstRun = false
 
 			select {
 			case <-ctx.Done():
@@ -123,7 +139,7 @@ func (m *Manager) StartAutoParseLoop(ctx context.Context) {
 			}
 		}
 	}()
-	log.Info().Msg("auto-parse loop started (continuous)")
+	log.Info().Msg("auto-parse loop started (deep first, then shallow)")
 }
 
 func (m *Manager) StartMetricsRefreshLoop(ctx context.Context) {
