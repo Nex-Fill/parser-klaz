@@ -1,6 +1,7 @@
 package parser
 
 import (
+	"compress/gzip"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -302,7 +303,15 @@ func (s *Scraper) doRequest(ctx context.Context, targetURL string) ([]byte, erro
 			}
 			continue
 		}
-		body, _ := io.ReadAll(resp.Body)
+		var reader io.Reader = resp.Body
+		if resp.Header.Get("Content-Encoding") == "gzip" {
+			gr, err := gzip.NewReader(resp.Body)
+			if err == nil {
+				reader = gr
+				defer gr.Close()
+			}
+		}
+		body, _ := io.ReadAll(reader)
 		resp.Body.Close()
 
 		if resp.StatusCode == 200 {
