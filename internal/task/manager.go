@@ -160,7 +160,7 @@ func (m *Manager) CreateTask(ctx context.Context, req CreateTaskRequest) (*kl.Pa
 	m.tasks[taskID] = task
 	m.mu.Unlock()
 
-	taskCtx, cancel := context.WithCancel(ctx)
+	taskCtx, cancel := context.WithCancel(context.Background())
 	m.mu.Lock()
 	m.cancels[taskID] = cancel
 	m.mu.Unlock()

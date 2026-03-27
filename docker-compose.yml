@@ -76,8 +76,6 @@ services:
       PAGE_SIZE: "100"
       MAX_PAGES_PER_CAT: "50"
       RECHECK_INTERVAL: "1h"
-    volumes:
-      - ./proxies.txt:/app/proxies.txt:ro
     depends_on:
       postgres:
         condition: service_healthy
