@@ -66,7 +66,7 @@ services:
       S3_BUCKET_ORIGINALS: klaz-photos-originals
       S3_BUCKET_PREVIEWS: klaz-photos-preview
 
-      PROXY_FILE: /app/proxies.txt
+      PROXY_FILE: ""
 
       PARSE_WORKERS: "50"
       IMAGE_WORKERS: "20"
