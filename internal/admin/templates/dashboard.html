@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Klaz Parser — Admin</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#0f1117;color:#e1e4e8;min-height:100vh}
+nav{background:#161b22;border-bottom:1px solid #30363d;padding:12px 24px;display:flex;gap:20px;align-items:center}
+nav a{color:#8b949e;text-decoration:none;font-size:14px;padding:6px 12px;border-radius:6px;transition:.2s}
+nav a:hover,nav a.active{color:#f0f6fc;background:#21262d}
+nav .brand{color:#58a6ff;font-weight:700;font-size:16px;margin-right:auto}
+.container{max-width:1200px;margin:0 auto;padding:24px}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:16px;margin-bottom:24px}
+.card{background:#161b22;border:1px solid #30363d;border-radius:12px;padding:20px}
+.card h3{color:#8b949e;font-size:12px;text-transform:uppercase;letter-spacing:1px;margin-bottom:8px}
+.card .value{font-size:32px;font-weight:700;color:#f0f6fc}
+.card .value.green{color:#3fb950}
+.card .value.red{color:#f85149}
+.card .value.blue{color:#58a6ff}
+.card .value.yellow{color:#d29922}
+.actions{display:flex;gap:12px;margin-bottom:24px;flex-wrap:wrap}
+.btn{background:#21262d;color:#c9d1d9;border:1px solid #30363d;padding:10px 20px;border-radius:8px;cursor:pointer;font-size:14px;transition:.2s}
+.btn:hover{background:#30363d;border-color:#58a6ff}
+.btn.primary{background:#238636;border-color:#238636;color:#fff}
+.btn.primary:hover{background:#2ea043}
+#live-stats{font-size:12px;color:#8b949e}
+</style>
+</head>
+<body>
+<nav>
+<span class="brand">Klaz Parser</span>
+<a href="/admin/" class="active">Dashboard</a>
+<a href="/admin/settings">Settings</a>
+<a href="/admin/proxies">Proxies</a>
+<a href="/admin/tasks">Tasks</a>
+<a href="/admin/logs">Logs</a>
+</nav>
+<div class="container">
+<h1 style="margin-bottom:20px">Dashboard</h1>
+
+<div class="grid">
+<div class="card"><h3>Total Ads</h3><div class="value" id="v-total">{{.TotalAds}}</div></div>
+<div class="card"><h3>Active</h3><div class="value green" id="v-active">{{.ActiveAds}}</div></div>
+<div class="card"><h3>Deleted</h3><div class="value red" id="v-deleted">{{.DeletedAds}}</div></div>
+<div class="card"><h3>Today</h3><div class="value blue" id="v-today">{{.AdsToday}}</div></div>
+<div class="card"><h3>Proxies Alive</h3><div class="value green" id="v-proxy">{{.ProxyAlive}}</div></div>
+<div class="card"><h3>Running Tasks</h3><div class="value yellow" id="v-tasks">{{.RunningTasks}}</div></div>
+<div class="card"><h3>Goroutines</h3><div class="value">{{.Goroutines}}</div></div>
+<div class="card"><h3>Heap (MB)</h3><div class="value">{{.HeapMB}}</div></div>
+</div>
+
+<div class="actions">
+<form method="POST" action="/admin/actions/recheck" style="display:inline">
+<button class="btn primary" type="submit">Force Recheck</button>
+</form>
+<form method="POST" action="/admin/actions/category-sync" style="display:inline">
+<button class="btn" type="submit">Sync Categories</button>
+</form>
+<form method="POST" action="/admin/actions/proxy-reload" style="display:inline">
+<button class="btn" type="submit">Reload Proxies</button>
+</form>
+</div>
+<div id="live-stats">Auto-refreshing every 5s...</div>
+</div>
+<script>
+setInterval(()=>{
+fetch('/admin/api/stats').then(r=>r.json()).then(d=>{
+if(d.stats){
+document.getElementById('v-total').textContent=d.stats.total_ads||0;
+document.getElementById('v-active').textContent=d.stats.active_ads||0;
+document.getElementById('v-deleted').textContent=d.stats.deleted_ads||0;
+document.getElementById('v-today').textContent=d.stats.ads_today||0;
+}
+document.getElementById('v-proxy').textContent=d.proxy||0;
+document.getElementById('v-tasks').textContent=d.tasks||0;
+document.getElementById('live-stats').textContent='Updated: '+d.time;
+});
+},5000);
+</script>
+</body>
+</html>

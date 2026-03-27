@@ -1,0 +1,329 @@
+package task
+
+import (
+	"context"
+	"fmt"
+	"sync"
+	"time"
+
+	"github.com/rs/zerolog/log"
+
+	"github.com/danamakarenko/klaz-parser/internal/parser"
+	"github.com/danamakarenko/klaz-parser/internal/storage"
+	kl "github.com/danamakarenko/klaz-parser/pkg/kleinanzeigen"
+)
+
+type Manager struct {
+	db      *storage.Postgres
+	cache   *storage.Cache
+	scraper *parser.Scraper
+
+	tasks   map[string]*kl.ParseTask
+	cancels map[string]context.CancelFunc
+	mu      sync.RWMutex
+
+	recheckCancel context.CancelFunc
+}
+
+func NewManager(db *storage.Postgres, cache *storage.Cache, scraper *parser.Scraper) *Manager {
+	return &Manager{
+		db:      db,
+		cache:   cache,
+		scraper: scraper,
+		tasks:   make(map[string]*kl.ParseTask),
+		cancels: make(map[string]context.CancelFunc),
+	}
+}
+
+// ==================== BACKGROUND LOOPS ====================
+
+// StartPriorityRecheckLoop runs the tiered recheck every 30 minutes.
+// Inside, each tier decides which ads to check based on its own interval.
+func (m *Manager) StartPriorityRecheckLoop(ctx context.Context) {
+	ctx, m.recheckCancel = context.WithCancel(ctx)
+
+	go func() {
+		time.Sleep(10 * time.Second)
+		log.Info().Msg("running initial priority recheck")
+		m.scraper.RecheckByPriority(ctx)
+
+		ticker := time.NewTicker(30 * time.Minute)
+		defer ticker.Stop()
+
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				log.Info().Msg("priority recheck cycle")
+				if err := m.scraper.RecheckByPriority(ctx); err != nil {
+					log.Error().Err(err).Msg("priority recheck failed")
+				}
+			}
+		}
+	}()
+	log.Info().Msg("priority recheck loop started (every 30 min)")
+}
+
+func (m *Manager) StartMetricsRefreshLoop(ctx context.Context) {
+	go func() {
+		ticker := time.NewTicker(5 * time.Minute)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				start := time.Now()
+				if err := m.db.RefreshMetrics(ctx); err != nil {
+					log.Error().Err(err).Msg("metrics refresh failed")
+				} else {
+					log.Info().Dur("took", time.Since(start)).Msg("metrics refreshed")
+				}
+			}
+		}
+	}()
+	log.Info().Msg("metrics refresh loop started (every 5 min)")
+}
+
+func (m *Manager) StartCategorySyncLoop(ctx context.Context) {
+	go func() {
+		if err := m.scraper.SyncCategories(ctx); err != nil {
+			log.Warn().Err(err).Msg("initial category sync failed")
+		}
+		ticker := time.NewTicker(24 * time.Hour)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				m.scraper.SyncCategories(ctx)
+			}
+		}
+	}()
+}
+
+// ==================== INSTANT RECHECK (user-triggered) ====================
+
+func (m *Manager) InstantRecheck(ctx context.Context, adID string) (*kl.Ad, error) {
+	return m.scraper.InstantRecheck(ctx, adID)
+}
+
+func (m *Manager) TriggerFullRecheck() {
+	go func() {
+		log.Info().Msg("manual full recheck triggered")
+		ctx := context.Background()
+		if err := m.scraper.RecheckByPriority(ctx); err != nil {
+			log.Error().Err(err).Msg("manual recheck failed")
+		}
+	}()
+}
+
+func (m *Manager) TriggerCategorySync() {
+	go func() {
+		log.Info().Msg("category sync triggered")
+		ctx := context.Background()
+		if err := m.scraper.SyncCategories(ctx); err != nil {
+			log.Error().Err(err).Msg("category sync failed")
+		}
+	}()
+}
+
+// ==================== TASK MANAGEMENT ====================
+
+func (m *Manager) CreateTask(ctx context.Context, req CreateTaskRequest) (*kl.ParseTask, error) {
+	taskID := fmt.Sprintf("task_%d_%d", time.Now().UnixMilli(), len(m.tasks)+1)
+
+	task := &kl.ParseTask{
+		ID:                  taskID,
+		Name:                req.Name,
+		Status:              kl.TaskPending,
+		CategoryURLs:        req.CategoryURLs,
+		Filters:             req.Filters,
+		MaxPagesPerCategory: req.MaxPagesPerCategory,
+		MaxAdsToCheck:       req.MaxAdsToCheck,
+		MonitorHours:        req.MonitorHours,
+		UserID:              req.UserID,
+		Progress: kl.TaskProgress{
+			TotalCategories: len(req.CategoryURLs),
+		},
+		CreatedAt: time.Now(),
+		UpdatedAt: time.Now(),
+	}
+
+	if err := m.db.SaveTask(ctx, task); err != nil {
+		return nil, fmt.Errorf("save task: %w", err)
+	}
+
+	m.mu.Lock()
+	m.tasks[taskID] = task
+	m.mu.Unlock()
+
+	taskCtx, cancel := context.WithCancel(ctx)
+	m.mu.Lock()
+	m.cancels[taskID] = cancel
+	m.mu.Unlock()
+
+	go func() {
+		if task.MonitorHours != nil && *task.MonitorHours > 0 {
+			m.runMonitoringTask(taskCtx, task)
+		} else {
+			m.runTask(taskCtx, task)
+		}
+	}()
+
+	return task, nil
+}
+
+func (m *Manager) runTask(ctx context.Context, task *kl.ParseTask) {
+	if err := m.scraper.RunTask(ctx, task); err != nil {
+		log.Error().Err(err).Str("task_id", task.ID).Msg("task failed")
+	}
+}
+
+func (m *Manager) runMonitoringTask(ctx context.Context, task *kl.ParseTask) {
+	hours := *task.MonitorHours
+	deadline := time.Now().Add(time.Duration(hours) * time.Hour)
+	cycle := 0
+
+	for time.Now().Before(deadline) {
+		select {
+		case <-ctx.Done():
+			return
+		default:
+		}
+		if task.Status == kl.TaskStopped {
+			return
+		}
+
+		cycle++
+		task.Progress.MonitorCycles = cycle
+		log.Info().Str("task_id", task.ID).Int("cycle", cycle).Msg("monitor cycle")
+
+		if err := m.scraper.RunTask(ctx, task); err != nil {
+			log.Warn().Err(err).Msg("monitor cycle error")
+		}
+		task.Status = kl.TaskRunning
+
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(5 * time.Minute):
+		}
+	}
+
+	task.Status = kl.TaskCompleted
+	now := time.Now()
+	task.CompletedAt = &now
+	task.UpdatedAt = now
+	m.db.SaveTask(context.Background(), task)
+}
+
+func (m *Manager) GetTask(taskID string) *kl.ParseTask {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.tasks[taskID]
+}
+
+func (m *Manager) GetTaskFromCache(ctx context.Context, taskID string) (*kl.ParseTask, error) {
+	if task, err := m.cache.GetTaskProgress(ctx, taskID); err == nil && task != nil {
+		return task, nil
+	}
+	m.mu.RLock()
+	task, ok := m.tasks[taskID]
+	m.mu.RUnlock()
+	if !ok {
+		return nil, fmt.Errorf("task %s not found", taskID)
+	}
+	return task, nil
+}
+
+func (m *Manager) ListTasks(userID string) []*kl.ParseTask {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	var result []*kl.ParseTask
+	for _, task := range m.tasks {
+		if userID == "" || task.UserID == userID {
+			result = append(result, task)
+		}
+	}
+	return result
+}
+
+func (m *Manager) PauseTask(taskID string) error {
+	m.mu.RLock()
+	task, ok := m.tasks[taskID]
+	m.mu.RUnlock()
+	if !ok {
+		return fmt.Errorf("task %s not found", taskID)
+	}
+	if task.Status != kl.TaskRunning {
+		return fmt.Errorf("task is not running")
+	}
+	task.Status = kl.TaskPaused
+	task.UpdatedAt = time.Now()
+	return nil
+}
+
+func (m *Manager) ResumeTask(taskID string) error {
+	m.mu.RLock()
+	task, ok := m.tasks[taskID]
+	m.mu.RUnlock()
+	if !ok {
+		return fmt.Errorf("task %s not found", taskID)
+	}
+	if task.Status != kl.TaskPaused {
+		return fmt.Errorf("task is not paused")
+	}
+	task.Status = kl.TaskRunning
+	task.UpdatedAt = time.Now()
+	return nil
+}
+
+func (m *Manager) StopTask(taskID string) error {
+	m.mu.Lock()
+	task, ok := m.tasks[taskID]
+	cancel := m.cancels[taskID]
+	m.mu.Unlock()
+	if !ok {
+		return fmt.Errorf("task %s not found", taskID)
+	}
+	task.Status = kl.TaskStopped
+	task.UpdatedAt = time.Now()
+	if cancel != nil {
+		cancel()
+	}
+	return nil
+}
+
+func (m *Manager) DeleteTask(taskID string) error {
+	m.StopTask(taskID)
+	m.mu.Lock()
+	delete(m.tasks, taskID)
+	delete(m.cancels, taskID)
+	m.mu.Unlock()
+	return nil
+}
+
+func (m *Manager) Shutdown() {
+	if m.recheckCancel != nil {
+		m.recheckCancel()
+	}
+	m.mu.RLock()
+	for id, cancel := range m.cancels {
+		log.Info().Str("task_id", id).Msg("stopping task")
+		cancel()
+	}
+	m.mu.RUnlock()
+}
+
+type CreateTaskRequest struct {
+	Name                string          `json:"task_name"`
+	CategoryURLs        []string        `json:"category_urls"`
+	Filters             kl.ParseFilters `json:"filters"`
+	MaxPagesPerCategory int             `json:"max_pages_per_category"`
+	MaxAdsToCheck       *int            `json:"max_ads_to_check,omitempty"`
+	MonitorHours        *int            `json:"monitor_hours,omitempty"`
+	UserID              string          `json:"user_id,omitempty"`
+}

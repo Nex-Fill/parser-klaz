@@ -1,0 +1,9 @@
+server
+*.exe
+.env
+*.db
+*.db-shm
+*.db-wal
+proxies.txt
+__debug*
+.DS_Store

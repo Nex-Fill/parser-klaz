@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Logs — Klaz Admin</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#0f1117;color:#e1e4e8;min-height:100vh}
+nav{background:#161b22;border-bottom:1px solid #30363d;padding:12px 24px;display:flex;gap:20px;align-items:center}
+nav a{color:#8b949e;text-decoration:none;font-size:14px;padding:6px 12px;border-radius:6px;transition:.2s}
+nav a:hover,nav a.active{color:#f0f6fc;background:#21262d}
+nav .brand{color:#58a6ff;font-weight:700;font-size:16px;margin-right:auto}
+.container{max-width:1200px;margin:0 auto;padding:24px}
+.log-entry{font-family:'SF Mono',Monaco,monospace;font-size:12px;padding:4px 12px;border-bottom:1px solid #21262d;white-space:pre-wrap;word-break:break-all;line-height:1.6}
+.log-entry:hover{background:#161b22}
+.log-time{color:#8b949e;margin-right:8px}
+.log-box{background:#0d1117;border:1px solid #30363d;border-radius:12px;overflow:hidden;max-height:80vh;overflow-y:auto}
+</style>
+</head>
+<body>
+<nav>
+<span class="brand">Klaz Parser</span>
+<a href="/admin/">Dashboard</a>
+<a href="/admin/settings">Settings</a>
+<a href="/admin/proxies">Proxies</a>
+<a href="/admin/tasks">Tasks</a>
+<a href="/admin/logs" class="active">Logs</a>
+</nav>
+<div class="container">
+<h1 style="margin-bottom:20px">Recent Logs (last 1000)</h1>
+<div class="log-box">
+{{range .}}
+<div class="log-entry"><span class="log-time">{{.Time.Format "15:04:05"}}</span>{{.Message}}</div>
+{{end}}
+</div>
+</div>
+</body>
+</html>

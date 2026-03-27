@@ -1,0 +1,90 @@
+services:
+  postgres:
+    image: timescale/timescaledb:latest-pg16
+    environment:
+      POSTGRES_USER: klaz
+      POSTGRES_PASSWORD: klaz
+      POSTGRES_DB: klaz
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    command: >
+      postgres
+        -c shared_buffers=256MB
+        -c work_mem=16MB
+        -c maintenance_work_mem=128MB
+        -c effective_cache_size=512MB
+        -c max_connections=200
+        -c random_page_cost=1.1
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U klaz"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    command: redis-server --maxmemory 512mb --maxmemory-policy allkeys-lru --save ""
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8080:8080"
+    environment:
+      SERVER_HOST: "0.0.0.0"
+      SERVER_PORT: "8080"
+
+      DB_HOST: postgres
+      DB_PORT: "5432"
+      DB_USER: klaz
+      DB_PASSWORD: klaz
+      DB_NAME: klaz
+      DB_SSLMODE: disable
+      DB_MAX_CONNS: "50"
+      DB_MIN_CONNS: "10"
+
+      REDIS_HOST: redis
+      REDIS_PORT: "6379"
+      REDIS_CACHE_TTL: "5m"
+
+      S3_ACCESS_KEY: ${S3_ACCESS_KEY}
+      S3_SECRET_KEY: ${S3_SECRET_KEY}
+      S3_ENDPOINT: s3.eu-central-1.wasabisys.com
+      S3_REGION: eu-central-1
+      S3_BUCKET_ORIGINALS: klaz-photos-originals
+      S3_BUCKET_PREVIEWS: klaz-photos-preview
+
+      PROXY_FILE: /app/proxies.txt
+
+      PARSE_WORKERS: "50"
+      IMAGE_WORKERS: "20"
+      CHECK_WORKERS: "30"
+      MAX_CONCURRENT: "100"
+      BATCH_SIZE: "20"
+      PAGE_SIZE: "100"
+      MAX_PAGES_PER_CAT: "50"
+      RECHECK_INTERVAL: "1h"
+    volumes:
+      - ./proxies.txt:/app/proxies.txt:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+  redisdata:

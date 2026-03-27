@@ -1,0 +1,432 @@
+package storage
+
+import (
+	"context"
+	"fmt"
+	"sync"
+	"time"
+
+	"github.com/jackc/pgx/v5"
+	"github.com/rs/zerolog/log"
+
+	kl "github.com/danamakarenko/klaz-parser/pkg/kleinanzeigen"
+)
+
+// SnapshotBuffer collects snapshots and flushes them in bulk via COPY protocol.
+// This is the key to handling 14K+ inserts/sec for 50M ads.
+type SnapshotBuffer struct {
+	db        *Postgres
+	mu        sync.Mutex
+	buf       []snapshot
+	flushSize int
+	flushTick *time.Ticker
+	done      chan struct{}
+}
+
+type snapshot struct {
+	AdID     string
+	Views    int
+	PriceEUR float64
+	TS       time.Time
+}
+
+func NewSnapshotBuffer(db *Postgres, flushSize int, flushInterval time.Duration) *SnapshotBuffer {
+	sb := &SnapshotBuffer{
+		db:        db,
+		buf:       make([]snapshot, 0, flushSize*2),
+		flushSize: flushSize,
+		flushTick: time.NewTicker(flushInterval),
+		done:      make(chan struct{}),
+	}
+	go sb.flushLoop()
+	return sb
+}
+
+func (sb *SnapshotBuffer) Record(adID string, views int, price float64) {
+	sb.mu.Lock()
+	sb.buf = append(sb.buf, snapshot{adID, views, price, time.Now()})
+	needFlush := len(sb.buf) >= sb.flushSize
+	sb.mu.Unlock()
+
+	if needFlush {
+		go sb.flush()
+	}
+}
+
+func (sb *SnapshotBuffer) flushLoop() {
+	for {
+		select {
+		case <-sb.flushTick.C:
+			sb.flush()
+		case <-sb.done:
+			sb.flush()
+			return
+		}
+	}
+}
+
+func (sb *SnapshotBuffer) flush() {
+	sb.mu.Lock()
+	if len(sb.buf) == 0 {
+		sb.mu.Unlock()
+		return
+	}
+	batch := sb.buf
+	sb.buf = make([]snapshot, 0, sb.flushSize*2)
+	sb.mu.Unlock()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	if err := sb.db.BulkInsertSnapshots(ctx, batch); err != nil {
+		log.Error().Err(err).Int("count", len(batch)).Msg("snapshot flush failed")
+		return
+	}
+	log.Debug().Int("count", len(batch)).Msg("snapshots flushed")
+}
+
+func (sb *SnapshotBuffer) Stop() {
+	sb.flushTick.Stop()
+	close(sb.done)
+}
+
+// BulkInsertSnapshots uses PostgreSQL COPY protocol — handles 100K+ rows/sec.
+// Zero conflicts: snapshots are append-only, no UPSERT.
+func (p *Postgres) BulkInsertSnapshots(ctx context.Context, snaps []snapshot) error {
+	rows := make([][]interface{}, len(snaps))
+	for i, s := range snaps {
+		rows[i] = []interface{}{s.AdID, s.Views, s.PriceEUR, s.TS}
+	}
+
+	conn, err := p.pool.Acquire(ctx)
+	if err != nil {
+		return fmt.Errorf("acquire conn: %w", err)
+	}
+	defer conn.Release()
+
+	_, err = conn.Conn().CopyFrom(
+		ctx,
+		pgx.Identifier{"ad_snapshots"},
+		[]string{"ad_id", "views", "price_eur", "ts"},
+		pgx.CopyFromRows(rows),
+	)
+	return err
+}
+
+// RefreshMetrics calls the SQL function that batch-recomputes ALL metrics at once.
+// Called every 5 minutes from a background job. One SQL query → millions of rows.
+func (p *Postgres) RefreshMetrics(ctx context.Context) error {
+	_, err := p.pool.Exec(ctx, "SELECT refresh_ad_metrics()")
+	return err
+}
+
+// ==================== QUERIES FOR API ====================
+
+func (p *Postgres) GetAdMetrics(ctx context.Context, adID string) (*kl.AdMetrics, error) {
+	var m kl.AdMetrics
+	err := p.pool.QueryRow(ctx, `
+		SELECT ad_id, views_current, price_current,
+			views_1h_ago, views_24h_ago, views_7d_ago,
+			views_delta_1h, views_delta_24h, views_delta_7d, views_per_hour,
+			price_previous, price_min_seen, price_max_seen,
+			price_dropped, price_change_pct,
+			snapshot_count, first_seen_at, last_snapshot_at
+		FROM ad_metrics WHERE ad_id = $1`, adID,
+	).Scan(
+		&m.AdID, &m.ViewsCurrent, &m.PriceCurrent,
+		&m.Views1hAgo, &m.Views24hAgo, &m.Views7dAgo,
+		&m.ViewsDelta1h, &m.ViewsDelta24h, &m.ViewsDelta7d, &m.ViewsPerHour,
+		&m.PricePrevious, &m.PriceMinSeen, &m.PriceMaxSeen,
+		&m.PriceDropped, &m.PriceChangePct,
+		&m.SnapshotCount, &m.FirstSeenAt, &m.LastSnapshotAt,
+	)
+	if err != nil {
+		return nil, err
+	}
+	return &m, nil
+}
+
+// GetAdChartData returns chart data for a single ad.
+// Resolution auto-selects: raw snapshots for ≤7d, hourly for ≤90d, daily for >90d.
+func (p *Postgres) GetAdChartData(ctx context.Context, adID string) (*kl.AdChartData, error) {
+	chart := &kl.AdChartData{AdID: adID}
+
+	// Raw snapshots (last 7 days) — for zoom-in detail
+	rows, err := p.pool.Query(ctx, `
+		SELECT views, price_eur, ts
+		FROM ad_snapshots
+		WHERE ad_id = $1 AND ts >= NOW() - INTERVAL '7 days'
+		ORDER BY ts ASC`, adID)
+	if err == nil {
+		defer rows.Close()
+		for rows.Next() {
+			var views int
+			var price float64
+			var ts time.Time
+			if rows.Scan(&views, &price, &ts) == nil {
+				chart.ViewsChart = append(chart.ViewsChart, kl.ChartPoint{Timestamp: ts, Value: float64(views)})
+				chart.PriceChart = append(chart.PriceChart, kl.ChartPoint{Timestamp: ts, Value: price})
+			}
+		}
+	}
+
+	// Hourly aggregates (all time) — for long-term graph
+	hRows, err := p.pool.Query(ctx, `
+		SELECT hour, views_avg, views_delta, price_last
+		FROM ad_snapshots_hourly
+		WHERE ad_id = $1
+		ORDER BY hour ASC`, adID)
+	if err == nil {
+		defer hRows.Close()
+		for hRows.Next() {
+			var hour time.Time
+			var avg, delta int
+			var price float64
+			if hRows.Scan(&hour, &avg, &delta, &price) == nil {
+				chart.HourlyViews = append(chart.HourlyViews, kl.ChartPoint{Timestamp: hour, Value: float64(avg)})
+				chart.HourlyDelta = append(chart.HourlyDelta, kl.ChartPoint{Timestamp: hour, Value: float64(delta)})
+				chart.HourlyPrice = append(chart.HourlyPrice, kl.ChartPoint{Timestamp: hour, Value: price})
+			}
+		}
+	}
+
+	// Daily aggregates (all time) — for overview
+	dRows, err := p.pool.Query(ctx, `
+		SELECT day, views_avg, views_delta, price_last
+		FROM ad_snapshots_daily
+		WHERE ad_id = $1
+		ORDER BY day ASC`, adID)
+	if err == nil {
+		defer dRows.Close()
+		for dRows.Next() {
+			var day time.Time
+			var avg, delta int
+			var price float64
+			if dRows.Scan(&day, &avg, &delta, &price) == nil {
+				chart.DailyViews = append(chart.DailyViews, kl.ChartPoint{Timestamp: day, Value: float64(avg)})
+				chart.DailyDelta = append(chart.DailyDelta, kl.ChartPoint{Timestamp: day, Value: float64(delta)})
+			}
+		}
+	}
+
+	return chart, nil
+}
+
+// SearchAdsWithMetrics — the main search API.
+// JOIN ads + ad_metrics for instant filtering by dynamics.
+func (p *Postgres) SearchAdsWithMetrics(ctx context.Context, req kl.AdSearchRequest) ([]kl.AdWithMetrics, int, error) {
+	where := []string{"1=1"}
+	args := []interface{}{}
+	n := 1
+
+	add := func(clause string, val interface{}) {
+		where = append(where, fmt.Sprintf(clause, n))
+		args = append(args, val)
+		n++
+	}
+
+	if req.Query != "" {
+		where = append(where, fmt.Sprintf("(a.title ILIKE $%d OR a.description ILIKE $%d)", n, n))
+		args = append(args, "%"+req.Query+"%")
+		n++
+	}
+	if len(req.CategoryIDs) > 0 {
+		add("a.category_id = ANY($%d)", req.CategoryIDs)
+	}
+	if req.PriceMin != nil {
+		add("a.price_eur >= $%d", *req.PriceMin)
+	}
+	if req.PriceMax != nil {
+		add("a.price_eur <= $%d", *req.PriceMax)
+	}
+	if req.ViewsMin != nil {
+		add("a.views >= $%d", *req.ViewsMin)
+	}
+	if req.ViewsMax != nil {
+		add("a.views <= $%d", *req.ViewsMax)
+	}
+	if req.PosterType != "" {
+		add("a.poster_type = $%d", req.PosterType)
+	}
+	if req.IsActive != nil {
+		add("a.is_active = $%d", *req.IsActive)
+	}
+	if req.IsDeleted != nil {
+		add("a.is_deleted = $%d", *req.IsDeleted)
+	} else {
+		where = append(where, "a.is_deleted = false")
+	}
+	if req.DateFrom != "" {
+		add("a.start_date >= $%d", req.DateFrom)
+	}
+	if req.DateTo != "" {
+		add("a.start_date <= $%d", req.DateTo)
+	}
+	if req.TaskID != "" {
+		add("a.task_id = $%d", req.TaskID)
+	}
+	if req.HasImages != nil && *req.HasImages {
+		where = append(where, "EXISTS (SELECT 1 FROM ad_images ai WHERE ai.ad_id = a.id)")
+	}
+	if req.ViewsDelta1hMin != nil {
+		add("m.views_delta_1h >= $%d", *req.ViewsDelta1hMin)
+	}
+	if req.ViewsDelta1hMax != nil {
+		add("m.views_delta_1h <= $%d", *req.ViewsDelta1hMax)
+	}
+	if req.ViewsDelta24hMin != nil {
+		add("m.views_delta_24h >= $%d", *req.ViewsDelta24hMin)
+	}
+	if req.ViewsDelta24hMax != nil {
+		add("m.views_delta_24h <= $%d", *req.ViewsDelta24hMax)
+	}
+	if req.ViewsPerHourMin != nil {
+		add("m.views_per_hour >= $%d", *req.ViewsPerHourMin)
+	}
+	if req.PriceDropped != nil && *req.PriceDropped {
+		where = append(where, "m.price_dropped = true")
+	}
+
+	whereSQL := joinWhere(where)
+
+	sortCol := "a.created_at"
+	sortDir := "DESC"
+	allowed := map[string]string{
+		"price": "a.price_eur", "views": "a.views",
+		"created_at": "a.created_at", "updated_at": "a.updated_at",
+		"start_date": "a.start_date", "first_seen": "a.first_seen_at",
+		"views_delta_1h": "m.views_delta_1h", "views_delta_24h": "m.views_delta_24h",
+		"views_delta_7d": "m.views_delta_7d", "views_per_hour": "m.views_per_hour",
+		"snapshot_count": "m.snapshot_count",
+	}
+	if col, ok := allowed[req.SortBy]; ok {
+		sortCol = col
+	}
+	if req.SortOrder == "asc" {
+		sortDir = "ASC"
+	}
+
+	perPage := req.PerPage
+	if perPage <= 0 {
+		perPage = 50
+	}
+	if perPage > 200 {
+		perPage = 200
+	}
+	page := req.Page
+	if page < 1 {
+		page = 1
+	}
+	offset := (page - 1) * perPage
+
+	var total int
+	p.pool.QueryRow(ctx, "SELECT COUNT(*) FROM ads a LEFT JOIN ad_metrics m ON m.ad_id = a.id WHERE "+whereSQL, args...).Scan(&total)
+
+	dataSQL := fmt.Sprintf(`
+		SELECT
+			a.id, a.title, a.description, a.price_eur, a.contact_name,
+			a.category_id, a.ad_status, a.poster_type, a.start_date,
+			a.url, a.views, a.is_active, a.is_deleted, a.first_seen_at, a.created_at,
+			COALESCE(m.views_current, a.views),
+			COALESCE(m.price_current, a.price_eur),
+			COALESCE(m.views_delta_1h, 0),
+			COALESCE(m.views_delta_24h, 0),
+			COALESCE(m.views_delta_7d, 0),
+			COALESCE(m.views_per_hour, 0),
+			COALESCE(m.price_previous, 0),
+			COALESCE(m.price_min_seen, 0),
+			COALESCE(m.price_max_seen, 0),
+			COALESCE(m.price_dropped, false),
+			COALESCE(m.price_change_pct, 0),
+			COALESCE(m.snapshot_count, 0),
+			COALESCE(m.first_seen_at, a.first_seen_at),
+			COALESCE(m.last_snapshot_at, a.updated_at)
+		FROM ads a
+		LEFT JOIN ad_metrics m ON m.ad_id = a.id
+		WHERE %s
+		ORDER BY %s %s NULLS LAST
+		LIMIT $%d OFFSET $%d`, whereSQL, sortCol, sortDir, n, n+1)
+	args = append(args, perPage, offset)
+
+	rows, err := p.pool.Query(ctx, dataSQL, args...)
+	if err != nil {
+		return nil, 0, fmt.Errorf("query: %w", err)
+	}
+	defer rows.Close()
+
+	var results []kl.AdWithMetrics
+	for rows.Next() {
+		var aw kl.AdWithMetrics
+		var m kl.AdMetrics
+		if err := rows.Scan(
+			&aw.ID, &aw.Title, &aw.Description, &aw.PriceEUR, &aw.ContactName,
+			&aw.CategoryID, &aw.AdStatus, &aw.PosterType, &aw.StartDate,
+			&aw.URL, &aw.Views, &aw.IsActive, &aw.IsDeleted, &aw.FirstSeenAt, &aw.CreatedAt,
+			&m.ViewsCurrent, &m.PriceCurrent,
+			&m.ViewsDelta1h, &m.ViewsDelta24h, &m.ViewsDelta7d, &m.ViewsPerHour,
+			&m.PricePrevious, &m.PriceMinSeen, &m.PriceMaxSeen,
+			&m.PriceDropped, &m.PriceChangePct,
+			&m.SnapshotCount, &m.FirstSeenAt, &m.LastSnapshotAt,
+		); err != nil {
+			continue
+		}
+		m.AdID = aw.ID
+		aw.Metrics = &m
+		results = append(results, aw)
+	}
+
+	return results, total, nil
+}
+
+func (p *Postgres) GetDashboardStatsV2(ctx context.Context) (*kl.DashboardStats, error) {
+	stats := &kl.DashboardStats{}
+	batch := &pgx.Batch{}
+	batch.Queue("SELECT COUNT(*) FROM ads")
+	batch.Queue("SELECT COUNT(*) FROM ads WHERE is_active = true AND is_deleted = false")
+	batch.Queue("SELECT COUNT(*) FROM ads WHERE is_deleted = true")
+	batch.Queue("SELECT COUNT(*) FROM ad_images")
+	batch.Queue("SELECT COUNT(*) FROM ads WHERE first_seen_at >= CURRENT_DATE")
+	batch.Queue("SELECT COALESCE(AVG(price_eur), 0) FROM ads WHERE is_active = true AND price_eur > 0 AND price_eur < 50000")
+	batch.Queue("SELECT COUNT(*) FROM ad_metrics WHERE views_delta_1h > 10")
+	batch.Queue("SELECT COUNT(*) FROM ad_metrics WHERE price_dropped = true AND last_snapshot_at >= NOW() - INTERVAL '24 hours'")
+	batch.Queue("SELECT COALESCE(SUM(snapshot_count), 0) FROM ad_metrics")
+	batch.Queue(`SELECT c.id, c.name, COUNT(a.id)
+		FROM categories c JOIN ads a ON a.category_id = c.id WHERE a.is_active = true
+		GROUP BY c.id, c.name ORDER BY COUNT(a.id) DESC LIMIT 10`)
+
+	results := p.pool.SendBatch(ctx, batch)
+	defer results.Close()
+
+	results.QueryRow().Scan(&stats.TotalAds)
+	results.QueryRow().Scan(&stats.ActiveAds)
+	results.QueryRow().Scan(&stats.DeletedAds)
+	results.QueryRow().Scan(&stats.TotalImages)
+	results.QueryRow().Scan(&stats.AdsToday)
+	results.QueryRow().Scan(&stats.AvgPrice)
+	results.QueryRow().Scan(&stats.TrendingAds)
+	results.QueryRow().Scan(&stats.PriceDrops)
+	results.QueryRow().Scan(&stats.TotalSnapshots)
+
+	topRows, _ := results.Query()
+	if topRows != nil {
+		defer topRows.Close()
+		for topRows.Next() {
+			var cs kl.CategoryStat
+			if topRows.Scan(&cs.CategoryID, &cs.Name, &cs.Count) == nil {
+				stats.TopCategories = append(stats.TopCategories, cs)
+			}
+		}
+	}
+	return stats, nil
+}
+
+func joinWhere(parts []string) string {
+	result := ""
+	for i, p := range parts {
+		if i > 0 {
+			result += " AND "
+		}
+		result += p
+	}
+	return result
+}

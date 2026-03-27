@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Settings — Klaz Admin</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#0f1117;color:#e1e4e8;min-height:100vh}
+nav{background:#161b22;border-bottom:1px solid #30363d;padding:12px 24px;display:flex;gap:20px;align-items:center}
+nav a{color:#8b949e;text-decoration:none;font-size:14px;padding:6px 12px;border-radius:6px;transition:.2s}
+nav a:hover,nav a.active{color:#f0f6fc;background:#21262d}
+nav .brand{color:#58a6ff;font-weight:700;font-size:16px;margin-right:auto}
+.container{max-width:800px;margin:0 auto;padding:24px}
+.form-group{margin-bottom:16px}
+label{display:block;color:#8b949e;font-size:13px;margin-bottom:6px;text-transform:uppercase;letter-spacing:.5px}
+input[type=text],input[type=number]{background:#0d1117;border:1px solid #30363d;color:#e1e4e8;padding:10px 14px;border-radius:8px;width:100%;font-size:14px}
+input:focus{outline:none;border-color:#58a6ff}
+.toggle{display:flex;align-items:center;gap:10px}
+.toggle input[type=checkbox]{width:20px;height:20px;accent-color:#238636}
+.section{background:#161b22;border:1px solid #30363d;border-radius:12px;padding:20px;margin-bottom:20px}
+.section h2{font-size:16px;margin-bottom:16px;color:#f0f6fc}
+.btn{background:#238636;color:#fff;border:none;padding:12px 24px;border-radius:8px;cursor:pointer;font-size:14px;font-weight:600}
+.btn:hover{background:#2ea043}
+.saved{background:#238636;color:#fff;padding:8px 16px;border-radius:6px;margin-bottom:16px;display:inline-block}
+</style>
+</head>
+<body>
+<nav>
+<span class="brand">Klaz Parser</span>
+<a href="/admin/">Dashboard</a>
+<a href="/admin/settings" class="active">Settings</a>
+<a href="/admin/proxies">Proxies</a>
+<a href="/admin/tasks">Tasks</a>
+<a href="/admin/logs">Logs</a>
+</nav>
+<div class="container">
+<h1 style="margin-bottom:20px">Settings</h1>
+{{if .saved}}<div class="saved">Settings saved!</div>{{end}}
+
+<form method="POST" action="/admin/settings">
+
+<div class="section">
+<h2>Recheck Intervals</h2>
+<div class="form-group">
+<label>Fresh Ads (&lt;24h)</label>
+<input type="text" name="recheck_fresh_interval" value="{{.recheck_fresh_interval}}" placeholder="30m">
+</div>
+<div class="form-group">
+<label>Popular Ads (views&gt;50)</label>
+<input type="text" name="recheck_popular_interval" value="{{.recheck_popular_interval}}" placeholder="1h">
+</div>
+<div class="form-group">
+<label>Normal Ads</label>
+<input type="text" name="recheck_normal_interval" value="{{.recheck_normal_interval}}" placeholder="4h">
+</div>
+<div class="form-group">
+<label>Archive Ads (&gt;30d)</label>
+<input type="text" name="recheck_archive_interval" value="{{.recheck_archive_interval}}" placeholder="24h">
+</div>
+</div>
+
+<div class="section">
+<h2>Workers</h2>
+<div class="form-group">
+<label>Parse Workers</label>
+<input type="number" name="parse_workers" value="{{.parse_workers}}">
+</div>
+<div class="form-group">
+<label>Image Workers</label>
+<input type="number" name="image_workers" value="{{.image_workers}}">
+</div>
+</div>
+
+<div class="section">
+<h2>Proxy</h2>
+<div class="form-group">
+<label>Proxy Source URL</label>
+<input type="text" name="proxy_source_url" value="{{.proxy_source_url}}">
+</div>
+<div class="form-group">
+<label>Update Interval</label>
+<input type="text" name="proxy_update_interval" value="{{.proxy_update_interval}}" placeholder="5m">
+</div>
+</div>
+
+<div class="section">
+<h2>Toggles</h2>
+<div class="form-group toggle">
+<input type="checkbox" name="auto_recheck_enabled" {{if .auto_recheck_enabled}}checked{{end}}>
+<label style="margin:0">Auto Recheck Enabled</label>
+</div>
+<div class="form-group toggle">
+<input type="checkbox" name="image_upload_enabled" {{if .image_upload_enabled}}checked{{end}}>
+<label style="margin:0">Image Upload Enabled</label>
+</div>
+</div>
+
+<div class="section">
+<h2>User Limits</h2>
+<div class="form-group">
+<label>Free Tier Task Limit</label>
+<input type="number" name="free_tier_task_limit" value="{{.free_tier_task_limit}}">
+</div>
+<div class="form-group">
+<label>Premium Tier Task Limit</label>
+<input type="number" name="premium_tier_task_limit" value="{{.premium_tier_task_limit}}">
+</div>
+</div>
+
+<button class="btn" type="submit">Save Settings</button>
+</form>
+</div>
+</body>
+</html>
