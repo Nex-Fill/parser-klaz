@@ -253,10 +253,43 @@ func (s *Scraper) fetchAndParseAd(ctx context.Context, adID string) (*kl.Ad, []s
 }
 
 func (s *Scraper) fetchViews(ctx context.Context, adID string) (int, error) {
-	body, err := s.doRequest(ctx, kl.BuildViewsURL(adID))
+	viewsURL := kl.BuildViewsURL(adID)
+	proxyURL := s.proxyPool.GetWeighted()
+	client := s.buildClient(proxyURL)
+
+	req, err := http.NewRequestWithContext(ctx, "GET", viewsURL, nil)
 	if err != nil {
 		return 0, err
 	}
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36")
+	req.Header.Set("Accept", "*/*")
+	req.Header.Set("Accept-Language", "de-DE,de;q=0.9")
+	req.Header.Set("Referer", fmt.Sprintf("https://www.kleinanzeigen.de/s-anzeige/%s", adID))
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return 0, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		return 0, fmt.Errorf("views http %d", resp.StatusCode)
+	}
+
+	var reader io.Reader = resp.Body
+	if resp.Header.Get("Content-Encoding") == "gzip" {
+		gr, err := gzip.NewReader(resp.Body)
+		if err == nil {
+			reader = gr
+			defer gr.Close()
+		}
+	}
+
+	body, err := io.ReadAll(reader)
+	if err != nil {
+		return 0, err
+	}
+
 	var result map[string]interface{}
 	if err := json.Unmarshal(body, &result); err != nil {
 		return 0, err
@@ -410,7 +443,16 @@ func (s *Scraper) buildRecheckTiers() []RecheckTier {
 			Interval: lc.RecheckArchiveInterval,
 			Query: `SELECT id FROM ads
 				WHERE is_active = true AND is_deleted = false
+				AND first_seen_at > '2000-01-01'
 				AND first_seen_at < NOW() - INTERVAL '30 days'
+				AND (last_checked_at < $1 OR last_checked_at IS NULL)` + blacklistClause + `
+				ORDER BY last_checked_at ASC NULLS FIRST`,
+		},
+		{
+			Name:     "stale",
+			Interval: 1 * time.Hour,
+			Query: `SELECT id FROM ads
+				WHERE is_active = true AND is_deleted = false
 				AND (last_checked_at < $1 OR last_checked_at IS NULL)` + blacklistClause + `
 				ORDER BY last_checked_at ASC NULLS FIRST`,
 		},

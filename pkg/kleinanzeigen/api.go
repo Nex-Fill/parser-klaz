@@ -125,10 +125,12 @@ func ParseAdResponse(body []byte) (*Ad, []string, error) {
 		return nil, nil, fmt.Errorf("missing value in ad")
 	}
 
+	now := time.Now()
 	ad := &Ad{
-		IsActive:  true,
-		CreatedAt: time.Now(),
-		UpdatedAt: time.Now(),
+		IsActive:    true,
+		FirstSeenAt: now,
+		CreatedAt:   now,
+		UpdatedAt:   now,
 	}
 
 	if v := getNestedString(value, "id"); v != "" {
