@@ -207,6 +207,7 @@ BEGIN
             FROM ad_snapshots WHERE ad_id = latest.ad_id
         ) agg ON true
     ) s
+    WHERE EXISTS (SELECT 1 FROM ads WHERE id = s.ad_id)
     ON CONFLICT (ad_id) DO UPDATE SET
         views_current = EXCLUDED.views_current,
         price_current = EXCLUDED.price_current,

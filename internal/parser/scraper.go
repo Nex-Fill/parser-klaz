@@ -182,7 +182,7 @@ func (s *Scraper) processBatch(ctx context.Context, task *kl.ParseTask, rawAds [
 		batchSize = 50
 	}
 	skipViews := strings.HasPrefix(task.ID, "auto_")
-	skipImages := skipViews && !s.liveConfig.Get().ImageUploadEnabled
+	skipImages := skipViews
 
 	for i := 0; i < len(rawAds); i += batchSize {
 		end := i + batchSize

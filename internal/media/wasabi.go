@@ -99,7 +99,6 @@ func (p *Pipeline) ProcessImages(ctx context.Context, adID string, urls []string
 			defer wg.Done()
 			img, err := p.processOne(ctx, adID, imgURL, pos)
 			if err != nil {
-				log.Warn().Err(err).Str("url", imgURL).Msg("image process failed")
 				return
 			}
 			mu.Lock()
