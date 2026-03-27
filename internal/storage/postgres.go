@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -292,6 +293,8 @@ func (p *Postgres) UpsertCategory(ctx context.Context, cat kl.CategoryNode) erro
 }
 
 func (p *Postgres) UpsertCategoriesBatch(ctx context.Context, cats []kl.CategoryNode) error {
+	sort.Slice(cats, func(i, j int) bool { return cats[i].Level < cats[j].Level })
+
 	batch := &pgx.Batch{}
 	for _, cat := range cats {
 		batch.Queue(`
@@ -304,7 +307,9 @@ func (p *Postgres) UpsertCategoriesBatch(ctx context.Context, cats []kl.Category
 	results := p.pool.SendBatch(ctx, batch)
 	defer results.Close()
 	for range cats {
-		results.Exec()
+		if _, err := results.Exec(); err != nil {
+			log.Warn().Err(err).Msg("category upsert error")
+		}
 	}
 	return nil
 }
