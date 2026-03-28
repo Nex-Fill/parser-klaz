@@ -194,6 +194,13 @@ type AdMetrics struct {
 	ViewsDelta24h    int       `json:"views_delta_24h" db:"views_delta_24h"`
 	ViewsDelta7d     int       `json:"views_delta_7d" db:"views_delta_7d"`
 	ViewsPerHour     float64   `json:"views_per_hour" db:"views_per_hour"`
+	Favorites1hAgo   int       `json:"favorites_1h_ago" db:"favorites_1h_ago"`
+	Favorites24hAgo  int       `json:"favorites_24h_ago" db:"favorites_24h_ago"`
+	Favorites7dAgo   int       `json:"favorites_7d_ago" db:"favorites_7d_ago"`
+	FavoritesDelta1h  int      `json:"favorites_delta_1h" db:"favorites_delta_1h"`
+	FavoritesDelta24h int      `json:"favorites_delta_24h" db:"favorites_delta_24h"`
+	FavoritesDelta7d  int      `json:"favorites_delta_7d" db:"favorites_delta_7d"`
+	FavoritesPerHour  float64  `json:"favorites_per_hour" db:"favorites_per_hour"`
 	PricePrevious    float64   `json:"price_previous" db:"price_previous"`
 	PriceMinSeen     float64   `json:"price_min_seen" db:"price_min_seen"`
 	PriceMaxSeen     float64   `json:"price_max_seen" db:"price_max_seen"`
@@ -250,8 +257,9 @@ type ChartPoint struct {
 
 type AdChartData struct {
 	AdID         string       `json:"ad_id"`
-	ViewsChart   []ChartPoint `json:"views"`
-	PriceChart   []ChartPoint `json:"price"`
+	ViewsChart      []ChartPoint `json:"views"`
+	FavoritesChart  []ChartPoint `json:"favorites"`
+	PriceChart      []ChartPoint `json:"price"`
 	HourlyViews  []ChartPoint `json:"hourly_views,omitempty"`
 	HourlyDelta  []ChartPoint `json:"hourly_delta,omitempty"`
 	HourlyPrice  []ChartPoint `json:"hourly_price,omitempty"`

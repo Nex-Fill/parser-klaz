@@ -134,6 +134,9 @@ func (p *Postgres) GetAdMetrics(ctx context.Context, adID string) (*kl.AdMetrics
 		SELECT ad_id, views_current, COALESCE(favorites_current, 0), price_current,
 			views_1h_ago, views_24h_ago, views_7d_ago,
 			views_delta_1h, views_delta_24h, views_delta_7d, views_per_hour,
+			COALESCE(favorites_1h_ago, 0), COALESCE(favorites_24h_ago, 0), COALESCE(favorites_7d_ago, 0),
+			COALESCE(favorites_delta_1h, 0), COALESCE(favorites_delta_24h, 0), COALESCE(favorites_delta_7d, 0),
+			COALESCE(favorites_per_hour, 0),
 			price_previous, price_min_seen, price_max_seen,
 			price_dropped, price_change_pct,
 			snapshot_count, first_seen_at, last_snapshot_at
@@ -142,6 +145,9 @@ func (p *Postgres) GetAdMetrics(ctx context.Context, adID string) (*kl.AdMetrics
 		&m.AdID, &m.ViewsCurrent, &m.FavoritesCurrent, &m.PriceCurrent,
 		&m.Views1hAgo, &m.Views24hAgo, &m.Views7dAgo,
 		&m.ViewsDelta1h, &m.ViewsDelta24h, &m.ViewsDelta7d, &m.ViewsPerHour,
+		&m.Favorites1hAgo, &m.Favorites24hAgo, &m.Favorites7dAgo,
+		&m.FavoritesDelta1h, &m.FavoritesDelta24h, &m.FavoritesDelta7d,
+		&m.FavoritesPerHour,
 		&m.PricePrevious, &m.PriceMinSeen, &m.PriceMaxSeen,
 		&m.PriceDropped, &m.PriceChangePct,
 		&m.SnapshotCount, &m.FirstSeenAt, &m.LastSnapshotAt,
@@ -159,18 +165,19 @@ func (p *Postgres) GetAdChartData(ctx context.Context, adID string) (*kl.AdChart
 
 	// Raw snapshots (last 7 days) — for zoom-in detail
 	rows, err := p.pool.Query(ctx, `
-		SELECT views, price_eur, ts
+		SELECT views, COALESCE(favorites, 0), price_eur, ts
 		FROM ad_snapshots
 		WHERE ad_id = $1 AND ts >= NOW() - INTERVAL '7 days'
 		ORDER BY ts ASC`, adID)
 	if err == nil {
 		defer rows.Close()
 		for rows.Next() {
-			var views int
+			var views, favs int
 			var price float64
 			var ts time.Time
-			if rows.Scan(&views, &price, &ts) == nil {
+			if rows.Scan(&views, &favs, &price, &ts) == nil {
 				chart.ViewsChart = append(chart.ViewsChart, kl.ChartPoint{Timestamp: ts, Value: float64(views)})
+				chart.FavoritesChart = append(chart.FavoritesChart, kl.ChartPoint{Timestamp: ts, Value: float64(favs)})
 				chart.PriceChart = append(chart.PriceChart, kl.ChartPoint{Timestamp: ts, Value: price})
 			}
 		}
@@ -335,7 +342,7 @@ func (p *Postgres) SearchAdsWithMetrics(ctx context.Context, req kl.AdSearchRequ
 	sortCol := "a.created_at"
 	sortDir := "DESC"
 	allowed := map[string]string{
-		"price": "a.price_eur", "views": "a.views",
+		"price": "a.price_eur", "views": "a.views", "favorites": "a.favorites",
 		"created_at": "a.created_at", "updated_at": "a.updated_at",
 		"start_date": "a.start_date", "first_seen": "a.first_seen_at",
 		"views_delta_1h": "COALESCE(m.views_delta_1h, 0)", "views_delta_24h": "COALESCE(m.views_delta_24h, 0)",
@@ -389,6 +396,10 @@ func (p *Postgres) SearchAdsWithMetrics(ctx context.Context, req kl.AdSearchRequ
 			COALESCE(m.views_delta_24h, 0),
 			COALESCE(m.views_delta_7d, 0),
 			COALESCE(m.views_per_hour, 0),
+			COALESCE(m.favorites_delta_1h, 0),
+			COALESCE(m.favorites_delta_24h, 0),
+			COALESCE(m.favorites_delta_7d, 0),
+			COALESCE(m.favorites_per_hour, 0),
 			COALESCE(m.price_previous, 0),
 			COALESCE(m.price_min_seen, 0),
 			COALESCE(m.price_max_seen, 0),
@@ -423,6 +434,7 @@ func (p *Postgres) SearchAdsWithMetrics(ctx context.Context, req kl.AdSearchRequ
 			&aw.LocationID,
 			&m.ViewsCurrent, &m.FavoritesCurrent, &m.PriceCurrent,
 			&m.ViewsDelta1h, &m.ViewsDelta24h, &m.ViewsDelta7d, &m.ViewsPerHour,
+			&m.FavoritesDelta1h, &m.FavoritesDelta24h, &m.FavoritesDelta7d, &m.FavoritesPerHour,
 			&m.PricePrevious, &m.PriceMinSeen, &m.PriceMaxSeen,
 			&m.PriceDropped, &m.PriceChangePct,
 			&m.SnapshotCount, &m.FirstSeenAt, &m.LastSnapshotAt,
