@@ -78,7 +78,8 @@ func (m *Manager) StartBatchCountersLoop(ctx context.Context) {
 func (m *Manager) StartAutoParseLoop(ctx context.Context) {
 	go func() {
 		time.Sleep(15 * time.Second)
-		firstRun := true
+		adCount, _ := m.db.GetAdCount(ctx)
+		firstRun := adCount < 100000
 
 		for {
 			select {
