@@ -946,7 +946,7 @@ func (s *Scraper) BatchCountersUpdate(ctx context.Context) error {
 	log.Info().Int("total_ads", len(ids)).Msg("batch counters: starting")
 	start := time.Now()
 
-	const batchSize = 50
+	const batchSize = 75
 	var totalViews, totalFav, deleted int
 	var mu sync.Mutex
 
