@@ -201,7 +201,7 @@ func (m *Manager) StartImageLoaderLoop(ctx context.Context) {
 				return
 			default:
 			}
-			count, _ := m.scraper.LoadMissingImages(ctx, 2000)
+			count, _ := m.scraper.LoadMissingImages(ctx, 5000)
 			if count == 0 {
 				select {
 				case <-ctx.Done():

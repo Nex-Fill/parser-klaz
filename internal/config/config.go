@@ -141,7 +141,7 @@ func Load() *Config {
 		},
 		Workers: WorkerConfig{
 			ParseWorkers:  getEnvInt("PARSE_WORKERS", 50),
-			ImageWorkers:  getEnvInt("IMAGE_WORKERS", 20),
+			ImageWorkers:  getEnvInt("IMAGE_WORKERS", 50),
 			CheckWorkers:  getEnvInt("CHECK_WORKERS", 30),
 			MaxConcurrent: getEnvInt("MAX_CONCURRENT", 100),
 		},
