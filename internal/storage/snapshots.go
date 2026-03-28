@@ -131,7 +131,7 @@ func (p *Postgres) RefreshMetrics(ctx context.Context) error {
 func (p *Postgres) GetAdMetrics(ctx context.Context, adID string) (*kl.AdMetrics, error) {
 	var m kl.AdMetrics
 	err := p.pool.QueryRow(ctx, `
-		SELECT ad_id, views_current, price_current,
+		SELECT ad_id, views_current, COALESCE(favorites_current, 0), price_current,
 			views_1h_ago, views_24h_ago, views_7d_ago,
 			views_delta_1h, views_delta_24h, views_delta_7d, views_per_hour,
 			price_previous, price_min_seen, price_max_seen,
@@ -139,7 +139,7 @@ func (p *Postgres) GetAdMetrics(ctx context.Context, adID string) (*kl.AdMetrics
 			snapshot_count, first_seen_at, last_snapshot_at
 		FROM ad_metrics WHERE ad_id = $1`, adID,
 	).Scan(
-		&m.AdID, &m.ViewsCurrent, &m.PriceCurrent,
+		&m.AdID, &m.ViewsCurrent, &m.FavoritesCurrent, &m.PriceCurrent,
 		&m.Views1hAgo, &m.Views24hAgo, &m.Views7dAgo,
 		&m.ViewsDelta1h, &m.ViewsDelta24h, &m.ViewsDelta7d, &m.ViewsPerHour,
 		&m.PricePrevious, &m.PriceMinSeen, &m.PriceMaxSeen,

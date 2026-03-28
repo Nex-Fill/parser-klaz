@@ -102,10 +102,10 @@ func (m *Manager) StartAutoParseLoop(ctx context.Context) {
 				catURLs = append(catURLs, "https://www.kleinanzeigen.de/s-cat/"+cat.ID)
 			}
 
-			maxPages := 1
+			maxPages := 2
 			label := "shallow"
 			if firstRun {
-				maxPages = 500
+				maxPages = 100
 				label = "DEEP (first run)"
 			}
 
@@ -144,11 +144,40 @@ func (m *Manager) StartAutoParseLoop(ctx context.Context) {
 			select {
 			case <-ctx.Done():
 				return
-			case <-time.After(10 * time.Minute):
+			case <-time.After(2 * time.Minute):
 			}
 		}
 	}()
-	log.Info().Msg("auto-parse loop started (deep first, then shallow)")
+	log.Info().Msg("auto-parse loop started (deep first, then shallow every 2 min)")
+}
+
+// StartNewAdsWatcher polls the global feed (no category filter) every 30 seconds
+// to catch brand new ads across ALL categories instantly.
+func (m *Manager) StartNewAdsWatcher(ctx context.Context) {
+	go func() {
+		time.Sleep(25 * time.Second)
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			default:
+			}
+
+			start := time.Now()
+			count := m.scraper.ScanNewAds(ctx, 5)
+
+			if count > 0 {
+				log.Info().Int("new_ads", count).Dur("took", time.Since(start)).Msg("new ads watcher: found")
+			}
+
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(30 * time.Second):
+			}
+		}
+	}()
+	log.Info().Msg("new ads watcher started (every 30 sec, global feed)")
 }
 
 func (m *Manager) StartImageLoaderLoop(ctx context.Context) {

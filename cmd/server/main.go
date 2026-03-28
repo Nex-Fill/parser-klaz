@@ -84,6 +84,7 @@ func main() {
 
 	taskMgr := task.NewManager(db, cache, scraper)
 	taskMgr.StartAutoParseLoop(ctx)
+	taskMgr.StartNewAdsWatcher(ctx)
 	taskMgr.StartBatchCountersLoop(ctx)
 	taskMgr.StartImageLoaderLoop(ctx)
 	taskMgr.StartMetricsRefreshLoop(ctx)

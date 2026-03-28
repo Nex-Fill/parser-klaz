@@ -800,6 +800,39 @@ func (s *Scraper) LoadMissingImages(ctx context.Context, batchSize int) (int, er
 	return len(ids), nil
 }
 
+// ==================== NEW ADS WATCHER (global feed) ====================
+
+func (s *Scraper) ScanNewAds(ctx context.Context, pages int) int {
+	var totalNew int
+	for page := 0; page < pages; page++ {
+		params := kl.SearchParams{
+			Page: page, Size: 100,
+		}
+		result, err := s.searchAds(ctx, params)
+		if err != nil || len(result.Ads) == 0 {
+			break
+		}
+
+		var ads []*kl.Ad
+		for _, raw := range result.Ads {
+			if raw.Raw == nil {
+				continue
+			}
+			ad, _ := kl.ParseAdFromSearchResult(raw.Raw)
+			if ad == nil || ad.ID == "" {
+				continue
+			}
+			ads = append(ads, ad)
+		}
+
+		if len(ads) > 0 {
+			s.db.UpsertAdsFromSearch(ctx, ads)
+			totalNew += len(ads)
+		}
+	}
+	return totalNew
+}
+
 // ==================== BATCH COUNTERS (views + favorites) ====================
 
 func (s *Scraper) BatchCountersUpdate(ctx context.Context) error {

@@ -32,8 +32,12 @@ func ExtractAdID(rawURL string) string {
 func BuildSearchURL(params SearchParams) string {
 	base := "https://api.kleinanzeigen.de/api/ads.json"
 	q := url.Values{}
-	q.Set("categoryId", params.CategoryID)
-	q.Set("adStatus", params.AdStatus)
+	if params.CategoryID != "" {
+		q.Set("categoryId", params.CategoryID)
+	}
+	if params.AdStatus != "" {
+		q.Set("adStatus", params.AdStatus)
+	}
 	q.Set("page", fmt.Sprintf("%d", params.Page))
 	q.Set("size", fmt.Sprintf("%d", params.Size))
 	if params.PriceType != "" {
