@@ -136,6 +136,48 @@ func (p *Postgres) UpdateAdViews(ctx context.Context, adID string, views int) er
 	return err
 }
 
+func (p *Postgres) BatchUpdateCounters(ctx context.Context, views map[string]int, favorites map[string]int) error {
+	batch := &pgx.Batch{}
+	seen := make(map[string]bool)
+	for id, v := range views {
+		f := favorites[id]
+		batch.Queue(`UPDATE ads SET views = $2, favorites = $3, last_checked_at = NOW(), updated_at = NOW() WHERE id = $1`, id, v, f)
+		seen[id] = true
+	}
+	for id, f := range favorites {
+		if !seen[id] {
+			batch.Queue(`UPDATE ads SET favorites = $2, last_checked_at = NOW(), updated_at = NOW() WHERE id = $1`, id, f)
+		}
+	}
+	if batch.Len() == 0 {
+		return nil
+	}
+	results := p.pool.SendBatch(ctx, batch)
+	defer results.Close()
+	for i := 0; i < batch.Len(); i++ {
+		if _, err := results.Exec(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (p *Postgres) GetAllActiveAdIDs(ctx context.Context) ([]string, error) {
+	rows, err := p.pool.Query(ctx, `SELECT id FROM ads WHERE is_active = true AND is_deleted = false ORDER BY id`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var ids []string
+	for rows.Next() {
+		var id string
+		if rows.Scan(&id) == nil {
+			ids = append(ids, id)
+		}
+	}
+	return ids, nil
+}
+
 func (p *Postgres) MarkAdDeleted(ctx context.Context, adID string) error {
 	now := time.Now()
 	_, err := p.pool.Exec(ctx, `

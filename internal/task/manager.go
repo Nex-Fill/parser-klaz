@@ -40,19 +40,22 @@ func NewManager(db *storage.Postgres, cache *storage.Cache, scraper *parser.Scra
 
 // ==================== BACKGROUND LOOPS ====================
 
-// StartPriorityRecheckLoop runs the tiered recheck every 30 minutes.
-// Inside, each tier decides which ads to check based on its own interval.
-func (m *Manager) StartPriorityRecheckLoop(ctx context.Context) {
+// StartBatchCountersLoop runs batch views+favorites update every 45 minutes.
+// Uses /api/v2/counters/ads/vip + /watchlist — 50 ads per request, ~3500 ads/sec.
+// Also detects deleted ads (missing from counters response).
+func (m *Manager) StartBatchCountersLoop(ctx context.Context) {
 	ctx, m.recheckCancel = context.WithCancel(ctx)
 
 	go func() {
-		time.Sleep(10 * time.Second)
+		time.Sleep(20 * time.Second)
 		m.parseLock.Lock()
-		log.Info().Msg("running initial priority recheck")
-		m.scraper.RecheckByPriority(ctx)
+		log.Info().Msg("running initial batch counters update")
+		if err := m.scraper.BatchCountersUpdate(ctx); err != nil {
+			log.Error().Err(err).Msg("batch counters failed")
+		}
 		m.parseLock.Unlock()
 
-		ticker := time.NewTicker(30 * time.Minute)
+		ticker := time.NewTicker(45 * time.Minute)
 		defer ticker.Stop()
 
 		for {
@@ -61,15 +64,15 @@ func (m *Manager) StartPriorityRecheckLoop(ctx context.Context) {
 				return
 			case <-ticker.C:
 				m.parseLock.Lock()
-				log.Info().Msg("priority recheck cycle")
-				if err := m.scraper.RecheckByPriority(ctx); err != nil {
-					log.Error().Err(err).Msg("priority recheck failed")
+				log.Info().Msg("batch counters cycle")
+				if err := m.scraper.BatchCountersUpdate(ctx); err != nil {
+					log.Error().Err(err).Msg("batch counters failed")
 				}
 				m.parseLock.Unlock()
 			}
 		}
 	}()
-	log.Info().Msg("priority recheck loop started (every 30 min)")
+	log.Info().Msg("batch counters loop started (every 45 min, views+favorites+deleted)")
 }
 
 // StartAutoParseLoop continuously parses ALL categories for new ads.

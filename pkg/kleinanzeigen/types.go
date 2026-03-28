@@ -21,6 +21,7 @@ type Ad struct {
 	LastEditDate      string     `json:"last_edit_date" db:"last_edit_date"`
 	URL               string     `json:"url" db:"url"`
 	Views             int        `json:"views" db:"views"`
+	Favorites         int        `json:"favorites" db:"favorites"`
 	BuyNowEnabled     bool       `json:"buy_now_enabled" db:"buy_now_enabled"`
 	IsActive       bool       `json:"is_active" db:"is_active"`
 	IsDeleted      bool       `json:"is_deleted" db:"is_deleted"`
@@ -184,6 +185,7 @@ type SavedFilter struct {
 type AdMetrics struct {
 	AdID             string    `json:"ad_id" db:"ad_id"`
 	ViewsCurrent     int       `json:"views_current" db:"views_current"`
+	FavoritesCurrent int       `json:"favorites_current" db:"favorites_current"`
 	PriceCurrent     float64   `json:"price_current" db:"price_current"`
 	Views1hAgo       int       `json:"views_1h_ago" db:"views_1h_ago"`
 	Views24hAgo      int       `json:"views_24h_ago" db:"views_24h_ago"`

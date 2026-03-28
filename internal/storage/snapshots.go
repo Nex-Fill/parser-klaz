@@ -24,10 +24,11 @@ type SnapshotBuffer struct {
 }
 
 type snapshot struct {
-	AdID     string
-	Views    int
-	PriceEUR float64
-	TS       time.Time
+	AdID      string
+	Views     int
+	Favorites int
+	PriceEUR  float64
+	TS        time.Time
 }
 
 func NewSnapshotBuffer(db *Postgres, flushSize int, flushInterval time.Duration) *SnapshotBuffer {
@@ -43,8 +44,12 @@ func NewSnapshotBuffer(db *Postgres, flushSize int, flushInterval time.Duration)
 }
 
 func (sb *SnapshotBuffer) Record(adID string, views int, price float64) {
+	sb.RecordFull(adID, views, 0, price)
+}
+
+func (sb *SnapshotBuffer) RecordFull(adID string, views, favorites int, price float64) {
 	sb.mu.Lock()
-	sb.buf = append(sb.buf, snapshot{adID, views, price, time.Now()})
+	sb.buf = append(sb.buf, snapshot{adID, views, favorites, price, time.Now()})
 	needFlush := len(sb.buf) >= sb.flushSize
 	sb.mu.Unlock()
 
@@ -95,7 +100,7 @@ func (sb *SnapshotBuffer) Stop() {
 func (p *Postgres) BulkInsertSnapshots(ctx context.Context, snaps []snapshot) error {
 	rows := make([][]interface{}, len(snaps))
 	for i, s := range snaps {
-		rows[i] = []interface{}{s.AdID, s.Views, s.PriceEUR, s.TS}
+		rows[i] = []interface{}{s.AdID, s.Views, s.Favorites, s.PriceEUR, s.TS}
 	}
 
 	conn, err := p.pool.Acquire(ctx)
@@ -107,7 +112,7 @@ func (p *Postgres) BulkInsertSnapshots(ctx context.Context, snaps []snapshot) er
 	_, err = conn.Conn().CopyFrom(
 		ctx,
 		pgx.Identifier{"ad_snapshots"},
-		[]string{"ad_id", "views", "price_eur", "ts"},
+		[]string{"ad_id", "views", "favorites", "price_eur", "ts"},
 		pgx.CopyFromRows(rows),
 	)
 	return err
@@ -326,8 +331,9 @@ func (p *Postgres) SearchAdsWithMetrics(ctx context.Context, req kl.AdSearchRequ
 		SELECT
 			a.id, a.title, a.description, a.price_eur, a.contact_name,
 			a.category_id, a.ad_status, a.poster_type, a.start_date,
-			a.url, a.views, a.is_active, a.is_deleted, a.first_seen_at, a.created_at,
+			a.url, a.views, a.favorites, a.is_active, a.is_deleted, a.first_seen_at, a.created_at,
 			COALESCE(m.views_current, a.views),
+			COALESCE(m.favorites_current, a.favorites),
 			COALESCE(m.price_current, a.price_eur),
 			COALESCE(m.views_delta_1h, 0),
 			COALESCE(m.views_delta_24h, 0),
@@ -361,8 +367,8 @@ func (p *Postgres) SearchAdsWithMetrics(ctx context.Context, req kl.AdSearchRequ
 		if err := rows.Scan(
 			&aw.ID, &aw.Title, &aw.Description, &aw.PriceEUR, &aw.ContactName,
 			&aw.CategoryID, &aw.AdStatus, &aw.PosterType, &aw.StartDate,
-			&aw.URL, &aw.Views, &aw.IsActive, &aw.IsDeleted, &aw.FirstSeenAt, &aw.CreatedAt,
-			&m.ViewsCurrent, &m.PriceCurrent,
+			&aw.URL, &aw.Views, &aw.Favorites, &aw.IsActive, &aw.IsDeleted, &aw.FirstSeenAt, &aw.CreatedAt,
+			&m.ViewsCurrent, &m.FavoritesCurrent, &m.PriceCurrent,
 			&m.ViewsDelta1h, &m.ViewsDelta24h, &m.ViewsDelta7d, &m.ViewsPerHour,
 			&m.PricePrevious, &m.PriceMinSeen, &m.PriceMaxSeen,
 			&m.PriceDropped, &m.PriceChangePct,

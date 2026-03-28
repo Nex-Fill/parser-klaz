@@ -79,6 +79,32 @@ func ParseViewsResponse(body []byte) int {
 	return 0
 }
 
+func BuildBatchViewsURL(adIDs []string) string {
+	return fmt.Sprintf("https://api.kleinanzeigen.de/api/v2/counters/ads/vip?adIds=%s", strings.Join(adIDs, ","))
+}
+
+func BuildBatchFavoritesURL(adIDs []string) string {
+	return fmt.Sprintf("https://api.kleinanzeigen.de/api/v2/counters/ads/watchlist?adIds=%s", strings.Join(adIDs, ","))
+}
+
+type CounterEntry struct {
+	AdID  string `json:"adId"`
+	Value int    `json:"value"`
+}
+
+func ParseCountersResponse(body []byte) map[string]int {
+	var resp struct {
+		Counters []CounterEntry `json:"counters"`
+	}
+	result := make(map[string]int)
+	if json.Unmarshal(body, &resp) == nil {
+		for _, c := range resp.Counters {
+			result[c.AdID] = c.Value
+		}
+	}
+	return result
+}
+
 func AdPublicURL(adID string) string {
 	return fmt.Sprintf("https://www.kleinanzeigen.de/s-anzeige/%s", adID)
 }

@@ -785,6 +785,122 @@ func (s *Scraper) LoadMissingImages(ctx context.Context, batchSize int) error {
 	return nil
 }
 
+// ==================== BATCH COUNTERS (views + favorites) ====================
+
+func (s *Scraper) BatchCountersUpdate(ctx context.Context) error {
+	ids, err := s.db.GetAllActiveAdIDs(ctx)
+	if err != nil {
+		return fmt.Errorf("get active IDs: %w", err)
+	}
+	if len(ids) == 0 {
+		return nil
+	}
+
+	log.Info().Int("total_ads", len(ids)).Msg("batch counters: starting")
+	start := time.Now()
+
+	const batchSize = 50
+	var totalViews, totalFav, deleted int
+	var mu sync.Mutex
+
+	for i := 0; i < len(ids); i += batchSize * 50 {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+		}
+
+		chunkEnd := i + batchSize*50
+		if chunkEnd > len(ids) {
+			chunkEnd = len(ids)
+		}
+		megaChunk := ids[i:chunkEnd]
+
+		var wg sync.WaitGroup
+		for j := 0; j < len(megaChunk); j += batchSize {
+			bEnd := j + batchSize
+			if bEnd > len(megaChunk) {
+				bEnd = len(megaChunk)
+			}
+			batch := megaChunk[j:bEnd]
+
+			wg.Add(1)
+			s.pool.Submit(func() {
+				defer wg.Done()
+
+				var viewsMap, favMap map[string]int
+				var vwg sync.WaitGroup
+
+				vwg.Add(2)
+				go func() {
+					defer vwg.Done()
+					body, err := s.doRequest(ctx, kl.BuildBatchViewsURL(batch))
+					if err == nil {
+						viewsMap = kl.ParseCountersResponse(body)
+					}
+				}()
+				go func() {
+					defer vwg.Done()
+					body, err := s.doRequest(ctx, kl.BuildBatchFavoritesURL(batch))
+					if err == nil {
+						favMap = kl.ParseCountersResponse(body)
+					}
+				}()
+				vwg.Wait()
+
+				if viewsMap == nil {
+					viewsMap = make(map[string]int)
+				}
+				if favMap == nil {
+					favMap = make(map[string]int)
+				}
+
+				for _, id := range batch {
+					v := viewsMap[id]
+					f := favMap[id]
+					if v > 0 || f > 0 {
+						s.snapBuf.RecordFull(id, v, f, 0)
+					}
+				}
+
+				var deletedIDs []string
+				for _, id := range batch {
+					_, inViews := viewsMap[id]
+					_, inFav := favMap[id]
+					if !inViews && !inFav {
+						deletedIDs = append(deletedIDs, id)
+					}
+				}
+
+				if err := s.db.BatchUpdateCounters(ctx, viewsMap, favMap); err != nil {
+					log.Warn().Err(err).Msg("batch counters DB update failed")
+				}
+
+				for _, id := range deletedIDs {
+					s.db.MarkAdDeleted(ctx, id)
+				}
+
+				mu.Lock()
+				totalViews += len(viewsMap)
+				totalFav += len(favMap)
+				deleted += len(deletedIDs)
+				mu.Unlock()
+			})
+		}
+		wg.Wait()
+	}
+
+	log.Info().
+		Int("total_ads", len(ids)).
+		Int("views_updated", totalViews).
+		Int("favorites_updated", totalFav).
+		Int("deleted_detected", deleted).
+		Dur("took", time.Since(start)).
+		Msg("batch counters: complete")
+
+	return nil
+}
+
 // ==================== DEBUG ====================
 
 func (s *Scraper) DebugRawFetch(ctx context.Context, adID string) map[string]interface{} {
