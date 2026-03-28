@@ -723,36 +723,51 @@ func (s *Scraper) recheckOneAd(ctx context.Context, adID string) {
 }
 
 func (s *Scraper) trackChanges(ctx context.Context, old, new *kl.Ad) {
-	if old.Price != new.Price {
+	if old.Price != new.Price && old.Price > 0 && new.Price > 0 {
 		s.db.RecordHistory(ctx, old.ID, "price", fmt.Sprintf("%d", old.Price), fmt.Sprintf("%d", new.Price))
-	}
-	if old.Views != new.Views {
-		s.db.RecordHistory(ctx, old.ID, "views", strconv.Itoa(old.Views), strconv.Itoa(new.Views))
 	}
 	if old.AdStatus != new.AdStatus {
 		s.db.RecordHistory(ctx, old.ID, "ad_status", old.AdStatus, new.AdStatus)
 	}
-	if old.Title != new.Title {
+	if old.Title != new.Title && old.Title != "" && new.Title != "" {
 		s.db.RecordHistory(ctx, old.ID, "title", old.Title, new.Title)
 	}
-	if old.Description != new.Description {
+	if normalizeWS(old.Description) != normalizeWS(new.Description) && old.Description != "" && new.Description != "" {
 		s.db.RecordHistory(ctx, old.ID, "description", old.Description, new.Description)
 	}
-	if old.ContactName != new.ContactName {
-		s.db.RecordHistory(ctx, old.ID, "contact_name", old.ContactName, new.ContactName)
+	if old.PosterType != new.PosterType && old.PosterType != "" && new.PosterType != "" {
+		s.db.RecordHistory(ctx, old.ID, "poster_type", old.PosterType, new.PosterType)
 	}
+}
+
+func normalizeWS(s string) string {
+	prev := byte(' ')
+	buf := make([]byte, 0, len(s))
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if c == ' ' || c == '\t' || c == '\n' || c == '\r' {
+			if prev != ' ' {
+				buf = append(buf, ' ')
+			}
+			prev = ' '
+		} else {
+			buf = append(buf, c)
+			prev = c
+		}
+	}
+	return string(buf)
 }
 
 // ==================== IMAGE LOADER ====================
 
-func (s *Scraper) LoadMissingImages(ctx context.Context, batchSize int) error {
+func (s *Scraper) LoadMissingImages(ctx context.Context, batchSize int) (int, error) {
 	if s.media == nil || !s.liveConfig.Get().ImageUploadEnabled {
-		return nil
+		return 0, nil
 	}
 
 	ids, err := s.db.GetAdsWithoutImages(ctx, batchSize)
 	if err != nil || len(ids) == 0 {
-		return err
+		return 0, err
 	}
 
 	log.Info().Int("count", len(ids)).Msg("loading missing images")
@@ -782,7 +797,7 @@ func (s *Scraper) LoadMissingImages(ctx context.Context, batchSize int) error {
 	wg.Wait()
 
 	log.Info().Int("processed", len(ids)).Msg("missing images loaded")
-	return nil
+	return len(ids), nil
 }
 
 // ==================== BATCH COUNTERS (views + favorites) ====================

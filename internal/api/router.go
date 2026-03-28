@@ -2,7 +2,9 @@ package api
 
 import (
 	"context"
+	"encoding/csv"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strconv"
 	"time"
@@ -92,11 +94,24 @@ func (s *Server) Router() http.Handler {
 
 			r.Route("/ads", func(r chi.Router) {
 				r.Post("/search", s.searchAdsAdvanced)
+				r.Post("/export", s.exportAds)
+				r.Post("/batch", s.batchGetAds)
 				r.Get("/{adID}", s.getAd)
 				r.Post("/{adID}/recheck", s.recheckAd)
 				r.Get("/{adID}/history", s.getAdHistory)
 				r.Get("/{adID}/statistics", s.getAdStatistics)
 				r.Post("/recheck-all", s.recheckAll)
+			})
+
+			r.Route("/sellers", func(r chi.Router) {
+				r.Get("/{sellerID}", s.getSellerProfile)
+				r.Get("/{sellerID}/ads", s.getSellerAds)
+			})
+
+			r.Route("/notifications", func(r chi.Router) {
+				r.Get("/", s.getNotifications)
+				r.Post("/{notifID}/read", s.markNotificationRead)
+				r.Post("/read-all", s.markAllNotificationsRead)
 			})
 
 			r.Route("/filters", func(r chi.Router) {
@@ -335,8 +350,7 @@ func (s *Server) getAd(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	stale := time.Since(ad.LastCheckedAt) > 10*time.Minute
-	if fresh || stale {
+	if fresh {
 		if freshAd, err := s.taskMgr.InstantRecheck(r.Context(), adID); err == nil && freshAd != nil {
 			ad = freshAd
 			if ad.Images == nil {
@@ -345,6 +359,12 @@ func (s *Server) getAd(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 		}
+	} else if !ad.LastCheckedAt.IsZero() && time.Since(ad.LastCheckedAt) > 10*time.Minute {
+		go func() {
+			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
+			s.taskMgr.InstantRecheck(ctx, adID)
+		}()
 	}
 
 	metrics, _ := s.db.GetAdMetrics(r.Context(), adID)
@@ -431,6 +451,170 @@ func (s *Server) getAdStatistics(w http.ResponseWriter, r *http.Request) {
 func (s *Server) recheckAll(w http.ResponseWriter, r *http.Request) {
 	s.taskMgr.TriggerFullRecheck()
 	respond(w, 200, map[string]interface{}{"Status": true, "message": "priority recheck triggered"})
+}
+
+// ==================== EXPORT ====================
+
+func (s *Server) exportAds(w http.ResponseWriter, r *http.Request) {
+	var req kl.AdSearchRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		respondError(w, 400, "invalid body")
+		return
+	}
+	req.Page = 1
+	req.PerPage = 5000
+
+	ads, _, err := s.db.SearchAdsWithMetrics(r.Context(), req)
+	if err != nil {
+		respondError(w, 500, err.Error())
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/csv; charset=utf-8")
+	w.Header().Set("Content-Disposition", "attachment; filename=ads_export.csv")
+	w.WriteHeader(200)
+
+	cw := csv.NewWriter(w)
+	cw.Write([]string{
+		"id", "title", "price_eur", "views", "category_id", "location_id",
+		"poster_type", "ad_status", "url", "start_date",
+		"views_per_hour", "views_delta_1h", "views_delta_24h",
+		"price_dropped", "price_change_pct", "first_seen_at",
+	})
+
+	for _, ad := range ads {
+		vph, d1h, d24h := "0", "0", "0"
+		dropped, changePct := "false", "0"
+		if ad.Metrics != nil {
+			vph = fmt.Sprintf("%.2f", ad.Metrics.ViewsPerHour)
+			d1h = strconv.Itoa(ad.Metrics.ViewsDelta1h)
+			d24h = strconv.Itoa(ad.Metrics.ViewsDelta24h)
+			dropped = strconv.FormatBool(ad.Metrics.PriceDropped)
+			changePct = fmt.Sprintf("%.2f", ad.Metrics.PriceChangePct)
+		}
+		cw.Write([]string{
+			ad.ID, ad.Title, fmt.Sprintf("%.2f", ad.PriceEUR),
+			strconv.Itoa(ad.Views), ad.CategoryID, ad.LocationID,
+			ad.PosterType, ad.AdStatus, ad.URL, ad.StartDate,
+			vph, d1h, d24h, dropped, changePct,
+			ad.FirstSeenAt.Format(time.RFC3339),
+		})
+	}
+	cw.Flush()
+}
+
+// ==================== BATCH ====================
+
+func (s *Server) batchGetAds(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		IDs []string `json:"ids"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || len(req.IDs) == 0 {
+		respondError(w, 400, "ids required")
+		return
+	}
+	if len(req.IDs) > 50 {
+		req.IDs = req.IDs[:50]
+	}
+
+	ads, err := s.db.GetAdsBatch(r.Context(), req.IDs)
+	if err != nil {
+		respondError(w, 500, err.Error())
+		return
+	}
+	respond(w, 200, map[string]interface{}{
+		"Status": true,
+		"data":   map[string]interface{}{"ads": ads, "total": len(ads)},
+	})
+}
+
+// ==================== SELLERS ====================
+
+func (s *Server) getSellerProfile(w http.ResponseWriter, r *http.Request) {
+	sellerID := chi.URLParam(r, "sellerID")
+	profile, err := s.db.GetSellerProfile(r.Context(), sellerID)
+	if err != nil {
+		respondError(w, 404, "seller not found")
+		return
+	}
+	respond(w, 200, map[string]interface{}{"Status": true, "data": profile})
+}
+
+func (s *Server) getSellerAds(w http.ResponseWriter, r *http.Request) {
+	sellerID := chi.URLParam(r, "sellerID")
+	offset, _ := strconv.Atoi(r.URL.Query().Get("offset"))
+	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
+	if limit <= 0 {
+		limit = 50
+	}
+	if limit > 200 {
+		limit = 200
+	}
+	ads, total, err := s.db.GetSellerAds(r.Context(), sellerID, offset, limit)
+	if err != nil {
+		respondError(w, 500, err.Error())
+		return
+	}
+	respond(w, 200, map[string]interface{}{
+		"Status": true,
+		"data":   map[string]interface{}{"ads": ads, "total": total, "offset": offset, "limit": limit},
+	})
+}
+
+// ==================== NOTIFICATIONS ====================
+
+func (s *Server) getNotifications(w http.ResponseWriter, r *http.Request) {
+	userID, ok := getUserID(r)
+	if !ok {
+		respondError(w, 401, "unauthorized")
+		return
+	}
+	onlyUnread := r.URL.Query().Get("unread") == "true"
+	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
+	if limit <= 0 {
+		limit = 50
+	}
+	notifs, err := s.db.GetNotifications(r.Context(), userID, onlyUnread, limit)
+	if err != nil {
+		respondError(w, 500, err.Error())
+		return
+	}
+	unreadCount, _ := s.db.GetUnreadNotificationCount(r.Context(), userID)
+	respond(w, 200, map[string]interface{}{
+		"Status": true,
+		"data":   map[string]interface{}{"notifications": notifs, "unread_count": unreadCount},
+	})
+}
+
+func (s *Server) markNotificationRead(w http.ResponseWriter, r *http.Request) {
+	userID, ok := getUserID(r)
+	if !ok {
+		respondError(w, 401, "unauthorized")
+		return
+	}
+	notifID, err := strconv.ParseInt(chi.URLParam(r, "notifID"), 10, 64)
+	if err != nil {
+		respondError(w, 400, "invalid notification id")
+		return
+	}
+	if err := s.db.MarkNotificationRead(r.Context(), notifID, userID); err != nil {
+		respondError(w, 500, err.Error())
+		return
+	}
+	respond(w, 200, map[string]interface{}{"Status": true, "message": "marked as read"})
+}
+
+func (s *Server) markAllNotificationsRead(w http.ResponseWriter, r *http.Request) {
+	userID, ok := getUserID(r)
+	if !ok {
+		respondError(w, 401, "unauthorized")
+		return
+	}
+	if err := s.db.MarkAllNotificationsRead(r.Context(), userID); err != nil {
+		respondError(w, 500, err.Error())
+		return
+	}
+	respond(w, 200, map[string]interface{}{"Status": true, "message": "all marked as read"})
 }
 
 // ==================== CATEGORIES ====================

@@ -207,7 +207,10 @@ type AdMetrics struct {
 
 type AdSearchRequest struct {
 	Query       string   `json:"q,omitempty"`
+	Exclude     []string `json:"exclude,omitempty"`
 	CategoryIDs []string `json:"category_ids,omitempty"`
+	LocationIDs []string `json:"location_ids,omitempty"`
+	SellerID    string   `json:"seller_id,omitempty"`
 	PriceMin    *float64 `json:"price_min,omitempty"`
 	PriceMax    *float64 `json:"price_max,omitempty"`
 	ViewsMin    *int     `json:"views_min,omitempty"`
@@ -220,7 +223,6 @@ type AdSearchRequest struct {
 	HasImages   *bool    `json:"has_images,omitempty"`
 	TaskID      string   `json:"task_id,omitempty"`
 
-	// Metrics filters — filter by views/price dynamics
 	ViewsDelta1hMin  *int     `json:"views_delta_1h_min,omitempty"`
 	ViewsDelta1hMax  *int     `json:"views_delta_1h_max,omitempty"`
 	ViewsDelta24hMin *int     `json:"views_delta_24h_min,omitempty"`
@@ -237,7 +239,8 @@ type AdSearchRequest struct {
 // AdWithMetrics — what the search API returns: ad + its live metrics inline
 type AdWithMetrics struct {
 	Ad
-	Metrics *AdMetrics `json:"metrics,omitempty"`
+	Metrics   *AdMetrics `json:"metrics,omitempty"`
+	Thumbnail string     `json:"thumbnail,omitempty"`
 }
 
 type ChartPoint struct {
@@ -282,4 +285,23 @@ type CategoryStat struct {
 	CategoryID string `json:"category_id"`
 	Name       string `json:"name"`
 	Count      int64  `json:"count"`
+}
+
+type Notification struct {
+	ID        int64                  `json:"id" db:"id"`
+	UserID    string                 `json:"user_id" db:"user_id"`
+	Type      string                 `json:"type" db:"type"`
+	Title     string                 `json:"title" db:"title"`
+	Body      string                 `json:"body" db:"body"`
+	Data      map[string]interface{} `json:"data,omitempty"`
+	IsRead    bool                   `json:"is_read" db:"is_read"`
+	CreatedAt time.Time              `json:"created_at" db:"created_at"`
+}
+
+type SellerProfile struct {
+	UserID    string `json:"user_id"`
+	Name      string `json:"name"`
+	SinceDate string `json:"since_date"`
+	TotalAds  int    `json:"total_ads"`
+	ActiveAds int    `json:"active_ads"`
 }

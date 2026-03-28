@@ -160,18 +160,17 @@ func (m *Manager) StartImageLoaderLoop(ctx context.Context) {
 				return
 			default:
 			}
-			m.parseLock.Lock()
-			m.scraper.LoadMissingImages(ctx, 500)
-			m.parseLock.Unlock()
-
-			select {
-			case <-ctx.Done():
-				return
-			case <-time.After(5 * time.Minute):
+			count, _ := m.scraper.LoadMissingImages(ctx, 2000)
+			if count == 0 {
+				select {
+				case <-ctx.Done():
+					return
+				case <-time.After(5 * time.Minute):
+				}
 			}
 		}
 	}()
-	log.Info().Msg("image loader loop started (every 5 min, 500 ads/batch)")
+	log.Info().Msg("image loader loop started (continuous, 2000 ads/batch)")
 }
 
 func (m *Manager) StartMetricsRefreshLoop(ctx context.Context) {

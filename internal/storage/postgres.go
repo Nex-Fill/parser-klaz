@@ -561,3 +561,226 @@ func (p *Postgres) DeleteSavedFilter(ctx context.Context, filterID, userID strin
 	_, err := p.pool.Exec(ctx, "DELETE FROM saved_filters WHERE id = $1 AND user_id = $2", filterID, userID)
 	return err
 }
+
+// ==================== NOTIFICATIONS ====================
+
+func (p *Postgres) GetNotifications(ctx context.Context, userID string, onlyUnread bool, limit int) ([]kl.Notification, error) {
+	if limit <= 0 {
+		limit = 50
+	}
+	query := `SELECT id, user_id, type, title, COALESCE(body, ''), COALESCE(data, '{}'), is_read, created_at
+		FROM notifications WHERE user_id = $1`
+	if onlyUnread {
+		query += " AND is_read = false"
+	}
+	query += " ORDER BY created_at DESC LIMIT $2"
+
+	rows, err := p.pool.Query(ctx, query, userID, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var notifs []kl.Notification
+	for rows.Next() {
+		var n kl.Notification
+		var dataJSON []byte
+		if rows.Scan(&n.ID, &n.UserID, &n.Type, &n.Title, &n.Body, &dataJSON, &n.IsRead, &n.CreatedAt) == nil {
+			json.Unmarshal(dataJSON, &n.Data)
+			notifs = append(notifs, n)
+		}
+	}
+	return notifs, nil
+}
+
+func (p *Postgres) GetUnreadNotificationCount(ctx context.Context, userID string) (int, error) {
+	var count int
+	err := p.pool.QueryRow(ctx, "SELECT COUNT(*) FROM notifications WHERE user_id = $1 AND is_read = false", userID).Scan(&count)
+	return count, err
+}
+
+func (p *Postgres) MarkNotificationRead(ctx context.Context, notifID int64, userID string) error {
+	_, err := p.pool.Exec(ctx, "UPDATE notifications SET is_read = true WHERE id = $1 AND user_id = $2", notifID, userID)
+	return err
+}
+
+func (p *Postgres) MarkAllNotificationsRead(ctx context.Context, userID string) error {
+	_, err := p.pool.Exec(ctx, "UPDATE notifications SET is_read = true WHERE user_id = $1 AND is_read = false", userID)
+	return err
+}
+
+func (p *Postgres) CreateNotification(ctx context.Context, n *kl.Notification) error {
+	dataJSON, _ := json.Marshal(n.Data)
+	return p.pool.QueryRow(ctx, `
+		INSERT INTO notifications (user_id, type, title, body, data, created_at)
+		VALUES ($1, $2, $3, $4, $5, $6)
+		RETURNING id`,
+		n.UserID, n.Type, n.Title, n.Body, dataJSON, time.Now(),
+	).Scan(&n.ID)
+}
+
+// ==================== BATCH ADS ====================
+
+func (p *Postgres) GetAdsBatch(ctx context.Context, ids []string) ([]kl.AdWithMetrics, error) {
+	rows, err := p.pool.Query(ctx, `
+		SELECT
+			a.id, a.title, COALESCE(a.description, ''), a.price_eur, COALESCE(a.contact_name, ''),
+			COALESCE(a.category_id, ''), COALESCE(a.location_id, ''), COALESCE(a.ad_status, 'ACTIVE'),
+			COALESCE(a.poster_type, ''), COALESCE(a.start_date, ''),
+			COALESCE(a.url, ''), COALESCE(a.views, 0), COALESCE(a.favorites, 0),
+			a.is_active, a.is_deleted,
+			COALESCE(a.first_seen_at, a.created_at), a.created_at,
+			COALESCE(a.user_id, ''), COALESCE(a.user_since_date, ''),
+			COALESCE(m.views_current, a.views, 0),
+			COALESCE(m.price_current, a.price_eur),
+			COALESCE(m.views_delta_1h, 0), COALESCE(m.views_delta_24h, 0), COALESCE(m.views_delta_7d, 0),
+			COALESCE(m.views_per_hour, 0),
+			COALESCE(m.price_previous, 0), COALESCE(m.price_min_seen, 0), COALESCE(m.price_max_seen, 0),
+			COALESCE(m.price_dropped, false), COALESCE(m.price_change_pct, 0),
+			COALESCE(m.snapshot_count, 0),
+			COALESCE(m.first_seen_at, a.first_seen_at, a.created_at),
+			COALESCE(m.last_snapshot_at, a.updated_at),
+			(SELECT cdn_url FROM ad_images WHERE ad_id = a.id AND position = 0 LIMIT 1)
+		FROM ads a
+		LEFT JOIN ad_metrics m ON m.ad_id = a.id
+		WHERE a.id = ANY($1)`, ids)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var results []kl.AdWithMetrics
+	for rows.Next() {
+		var aw kl.AdWithMetrics
+		var met kl.AdMetrics
+		var thumbnail *string
+		if err := rows.Scan(
+			&aw.ID, &aw.Title, &aw.Description, &aw.PriceEUR, &aw.ContactName,
+			&aw.CategoryID, &aw.LocationID, &aw.AdStatus,
+			&aw.PosterType, &aw.StartDate,
+			&aw.URL, &aw.Views, &aw.Favorites,
+			&aw.IsActive, &aw.IsDeleted,
+			&aw.FirstSeenAt, &aw.CreatedAt,
+			&aw.UserID, &aw.UserSinceDate,
+			&met.ViewsCurrent, &met.PriceCurrent,
+			&met.ViewsDelta1h, &met.ViewsDelta24h, &met.ViewsDelta7d,
+			&met.ViewsPerHour,
+			&met.PricePrevious, &met.PriceMinSeen, &met.PriceMaxSeen,
+			&met.PriceDropped, &met.PriceChangePct,
+			&met.SnapshotCount, &met.FirstSeenAt, &met.LastSnapshotAt,
+			&thumbnail,
+		); err != nil {
+			continue
+		}
+		met.AdID = aw.ID
+		aw.Metrics = &met
+		if thumbnail != nil {
+			aw.Thumbnail = *thumbnail
+		}
+		results = append(results, aw)
+	}
+
+	for i := range results {
+		imgs, err := p.getAdImages(ctx, results[i].ID)
+		if err == nil {
+			results[i].Images = imgs
+		}
+	}
+
+	return results, nil
+}
+
+func (p *Postgres) getAdImages(ctx context.Context, adID string) ([]kl.AdImage, error) {
+	rows, err := p.pool.Query(ctx, `
+		SELECT ad_id, position, original_url, s3_key, preview_key, hash, extension, cdn_url
+		FROM ad_images WHERE ad_id = $1 ORDER BY position`, adID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var imgs []kl.AdImage
+	for rows.Next() {
+		var img kl.AdImage
+		if rows.Scan(&img.AdID, &img.Position, &img.OriginalURL, &img.S3Key,
+			&img.PreviewKey, &img.Hash, &img.Extension, &img.CDNUrl) == nil {
+			imgs = append(imgs, img)
+		}
+	}
+	return imgs, nil
+}
+
+// ==================== SELLER ====================
+
+func (p *Postgres) GetSellerProfile(ctx context.Context, sellerID string) (*kl.SellerProfile, error) {
+	sp := &kl.SellerProfile{UserID: sellerID}
+	err := p.pool.QueryRow(ctx, `
+		SELECT
+			COALESCE(MAX(contact_name), ''),
+			COALESCE(MAX(user_since_date), ''),
+			COUNT(*),
+			COUNT(*) FILTER (WHERE is_active = true AND is_deleted = false)
+		FROM ads WHERE user_id = $1`, sellerID,
+	).Scan(&sp.Name, &sp.SinceDate, &sp.TotalAds, &sp.ActiveAds)
+	if err != nil {
+		return nil, err
+	}
+	return sp, nil
+}
+
+func (p *Postgres) GetSellerAds(ctx context.Context, sellerID string, offset, limit int) ([]kl.AdWithMetrics, int, error) {
+	var total int
+	p.pool.QueryRow(ctx, "SELECT COUNT(*) FROM ads WHERE user_id = $1 AND is_deleted = false", sellerID).Scan(&total)
+
+	rows, err := p.pool.Query(ctx, `
+		SELECT
+			a.id, a.title, COALESCE(a.description, ''), a.price_eur, COALESCE(a.contact_name, ''),
+			COALESCE(a.category_id, ''), COALESCE(a.location_id, ''), COALESCE(a.ad_status, 'ACTIVE'),
+			COALESCE(a.poster_type, ''), COALESCE(a.start_date, ''),
+			COALESCE(a.url, ''), COALESCE(a.views, 0), COALESCE(a.favorites, 0),
+			a.is_active, a.is_deleted,
+			COALESCE(a.first_seen_at, a.created_at), a.created_at,
+			COALESCE(m.views_current, a.views, 0), COALESCE(m.price_current, a.price_eur),
+			COALESCE(m.views_delta_1h, 0), COALESCE(m.views_delta_24h, 0),
+			COALESCE(m.views_per_hour, 0),
+			COALESCE(m.price_dropped, false), COALESCE(m.price_change_pct, 0),
+			(SELECT cdn_url FROM ad_images WHERE ad_id = a.id AND position = 0 LIMIT 1)
+		FROM ads a
+		LEFT JOIN ad_metrics m ON m.ad_id = a.id
+		WHERE a.user_id = $1 AND a.is_deleted = false
+		ORDER BY a.created_at DESC
+		LIMIT $2 OFFSET $3`, sellerID, limit, offset)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+
+	var results []kl.AdWithMetrics
+	for rows.Next() {
+		var aw kl.AdWithMetrics
+		var met kl.AdMetrics
+		var thumbnail *string
+		if err := rows.Scan(
+			&aw.ID, &aw.Title, &aw.Description, &aw.PriceEUR, &aw.ContactName,
+			&aw.CategoryID, &aw.LocationID, &aw.AdStatus,
+			&aw.PosterType, &aw.StartDate,
+			&aw.URL, &aw.Views, &aw.Favorites,
+			&aw.IsActive, &aw.IsDeleted,
+			&aw.FirstSeenAt, &aw.CreatedAt,
+			&met.ViewsCurrent, &met.PriceCurrent,
+			&met.ViewsDelta1h, &met.ViewsDelta24h,
+			&met.ViewsPerHour,
+			&met.PriceDropped, &met.PriceChangePct,
+			&thumbnail,
+		); err != nil {
+			continue
+		}
+		met.AdID = aw.ID
+		aw.Metrics = &met
+		if thumbnail != nil {
+			aw.Thumbnail = *thumbnail
+		}
+		results = append(results, aw)
+	}
+	return results, total, nil
+}

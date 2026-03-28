@@ -3,6 +3,7 @@ package storage
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -230,13 +231,42 @@ func (p *Postgres) SearchAdsWithMetrics(ctx context.Context, req kl.AdSearchRequ
 		n++
 	}
 
-	if req.Query != "" {
-		where = append(where, fmt.Sprintf("(a.title ILIKE $%d OR a.description ILIKE $%d)", n, n))
-		args = append(args, "%"+req.Query+"%")
-		n++
+	hasTextQuery := req.Query != ""
+	if hasTextQuery {
+		words := splitSearchWords(req.Query)
+		if len(words) == 1 {
+			where = append(where, fmt.Sprintf("(a.title ILIKE $%d OR a.description ILIKE $%d)", n, n))
+			args = append(args, "%"+words[0]+"%")
+			n++
+		} else {
+			var wordClauses []string
+			for _, w := range words {
+				wordClauses = append(wordClauses, fmt.Sprintf("(a.title ILIKE $%d OR a.description ILIKE $%d)", n, n))
+				args = append(args, "%"+w+"%")
+				n++
+			}
+			where = append(where, "("+joinWhere(wordClauses)+")")
+		}
+	}
+	if len(req.Exclude) > 0 {
+		for _, ex := range req.Exclude {
+			ex = strings.TrimSpace(ex)
+			if ex == "" {
+				continue
+			}
+			where = append(where, fmt.Sprintf("(a.title NOT ILIKE $%d AND a.description NOT ILIKE $%d)", n, n))
+			args = append(args, "%"+ex+"%")
+			n++
+		}
 	}
 	if len(req.CategoryIDs) > 0 {
 		add("a.category_id = ANY($%d)", req.CategoryIDs)
+	}
+	if len(req.LocationIDs) > 0 {
+		add("a.location_id = ANY($%d)", req.LocationIDs)
+	}
+	if req.SellerID != "" {
+		add("a.user_id = $%d", req.SellerID)
 	}
 	if req.PriceMin != nil {
 		add("a.price_eur >= $%d", *req.PriceMin)
@@ -300,9 +330,9 @@ func (p *Postgres) SearchAdsWithMetrics(ctx context.Context, req kl.AdSearchRequ
 		"price": "a.price_eur", "views": "a.views",
 		"created_at": "a.created_at", "updated_at": "a.updated_at",
 		"start_date": "a.start_date", "first_seen": "a.first_seen_at",
-		"views_delta_1h": "m.views_delta_1h", "views_delta_24h": "m.views_delta_24h",
-		"views_delta_7d": "m.views_delta_7d", "views_per_hour": "m.views_per_hour",
-		"snapshot_count": "m.snapshot_count",
+		"views_delta_1h": "COALESCE(m.views_delta_1h, 0)", "views_delta_24h": "COALESCE(m.views_delta_24h, 0)",
+		"views_delta_7d": "COALESCE(m.views_delta_7d, 0)", "views_per_hour": "COALESCE(m.views_per_hour, 0)",
+		"snapshot_count": "COALESCE(m.snapshot_count, 0)",
 	}
 	if col, ok := allowed[req.SortBy]; ok {
 		sortCol = col
@@ -324,16 +354,28 @@ func (p *Postgres) SearchAdsWithMetrics(ctx context.Context, req kl.AdSearchRequ
 	}
 	offset := (page - 1) * perPage
 
+	countArgs := make([]interface{}, len(args))
+	copy(countArgs, args)
+
 	var total int
-	p.pool.QueryRow(ctx, "SELECT COUNT(*) FROM ads a LEFT JOIN ad_metrics m ON m.ad_id = a.id WHERE "+whereSQL, args...).Scan(&total)
+	p.pool.QueryRow(ctx, "SELECT COUNT(*) FROM ads a LEFT JOIN ad_metrics m ON m.ad_id = a.id WHERE "+whereSQL, countArgs...).Scan(&total)
+
+	if hasTextQuery && req.SortBy == "" {
+		sortCol = "CASE WHEN a.title ILIKE $" + fmt.Sprintf("%d", n) + " THEN 0 ELSE 1 END, a.views"
+		args = append(args, "%"+req.Query+"%")
+		n++
+		sortDir = "DESC"
+	}
 
 	dataSQL := fmt.Sprintf(`
 		SELECT
-			a.id, a.title, a.description, a.price_eur, a.contact_name,
-			a.category_id, a.ad_status, a.poster_type, a.start_date,
-			a.url, a.views, a.favorites, a.is_active, a.is_deleted, a.first_seen_at, a.created_at,
-			COALESCE(m.views_current, a.views),
-			COALESCE(m.favorites_current, a.favorites),
+			a.id, a.title, COALESCE(a.description, ''), a.price_eur, COALESCE(a.contact_name, ''),
+			COALESCE(a.category_id, ''), COALESCE(a.ad_status, 'ACTIVE'), COALESCE(a.poster_type, ''), COALESCE(a.start_date, ''),
+			COALESCE(a.url, ''), COALESCE(a.views, 0), COALESCE(a.favorites, 0), a.is_active, a.is_deleted,
+			COALESCE(a.first_seen_at, a.created_at), a.created_at,
+			COALESCE(a.location_id, ''),
+			COALESCE(m.views_current, a.views, 0),
+			COALESCE(m.favorites_current, a.favorites, 0),
 			COALESCE(m.price_current, a.price_eur),
 			COALESCE(m.views_delta_1h, 0),
 			COALESCE(m.views_delta_24h, 0),
@@ -345,8 +387,9 @@ func (p *Postgres) SearchAdsWithMetrics(ctx context.Context, req kl.AdSearchRequ
 			COALESCE(m.price_dropped, false),
 			COALESCE(m.price_change_pct, 0),
 			COALESCE(m.snapshot_count, 0),
-			COALESCE(m.first_seen_at, a.first_seen_at),
-			COALESCE(m.last_snapshot_at, a.updated_at)
+			COALESCE(m.first_seen_at, a.first_seen_at, a.created_at),
+			COALESCE(m.last_snapshot_at, a.updated_at),
+			(SELECT cdn_url FROM ad_images WHERE ad_id = a.id AND position = 0 LIMIT 1)
 		FROM ads a
 		LEFT JOIN ad_metrics m ON m.ad_id = a.id
 		WHERE %s
@@ -364,20 +407,27 @@ func (p *Postgres) SearchAdsWithMetrics(ctx context.Context, req kl.AdSearchRequ
 	for rows.Next() {
 		var aw kl.AdWithMetrics
 		var m kl.AdMetrics
+		var thumbnail *string
 		if err := rows.Scan(
 			&aw.ID, &aw.Title, &aw.Description, &aw.PriceEUR, &aw.ContactName,
 			&aw.CategoryID, &aw.AdStatus, &aw.PosterType, &aw.StartDate,
 			&aw.URL, &aw.Views, &aw.Favorites, &aw.IsActive, &aw.IsDeleted, &aw.FirstSeenAt, &aw.CreatedAt,
+			&aw.LocationID,
 			&m.ViewsCurrent, &m.FavoritesCurrent, &m.PriceCurrent,
 			&m.ViewsDelta1h, &m.ViewsDelta24h, &m.ViewsDelta7d, &m.ViewsPerHour,
 			&m.PricePrevious, &m.PriceMinSeen, &m.PriceMaxSeen,
 			&m.PriceDropped, &m.PriceChangePct,
 			&m.SnapshotCount, &m.FirstSeenAt, &m.LastSnapshotAt,
+			&thumbnail,
 		); err != nil {
+			log.Warn().Err(err).Str("ad_id", aw.ID).Msg("search scan error")
 			continue
 		}
 		m.AdID = aw.ID
 		aw.Metrics = &m
+		if thumbnail != nil {
+			aw.Thumbnail = *thumbnail
+		}
 		results = append(results, aw)
 	}
 
@@ -424,6 +474,21 @@ func (p *Postgres) GetDashboardStatsV2(ctx context.Context) (*kl.DashboardStats,
 		}
 	}
 	return stats, nil
+}
+
+func splitSearchWords(q string) []string {
+	parts := strings.Fields(strings.TrimSpace(q))
+	var words []string
+	for _, p := range parts {
+		w := strings.TrimSpace(p)
+		if len(w) >= 2 {
+			words = append(words, w)
+		}
+	}
+	if len(words) == 0 && q != "" {
+		return []string{strings.TrimSpace(q)}
+	}
+	return words
 }
 
 func joinWhere(parts []string) string {
