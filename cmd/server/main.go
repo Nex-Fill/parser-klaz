@@ -88,6 +88,7 @@ func main() {
 	taskMgr.StartImageLoaderLoop(ctx)
 	taskMgr.StartMetricsRefreshLoop(ctx)
 	taskMgr.StartCategorySyncLoop(ctx)
+	taskMgr.StartFilterNotificationLoop(ctx)
 
 	adminHandler := admin.NewHandler(liveConfig, taskMgr, db, cache, proxyPool, logBuf,
 		getEnvDefault("ADMIN_USER", "admin"), getEnvDefault("ADMIN_PASSWORD", "admin"))

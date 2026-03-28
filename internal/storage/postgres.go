@@ -562,6 +562,87 @@ func (p *Postgres) DeleteSavedFilter(ctx context.Context, filterID, userID strin
 	return err
 }
 
+// ==================== SAVED FILTER NOTIFICATIONS ====================
+
+func (p *Postgres) GetActiveNotifyFilters(ctx context.Context) ([]kl.SavedFilter, error) {
+	rows, err := p.pool.Query(ctx, `
+		SELECT id, user_id, name, filters, category_ids, notify_on_new, notify_on_price_drop, created_at, updated_at
+		FROM saved_filters
+		WHERE notify_on_new = true OR notify_on_price_drop = true
+		ORDER BY created_at DESC`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var filters []kl.SavedFilter
+	for rows.Next() {
+		var sf kl.SavedFilter
+		var filtersJSON []byte
+		if rows.Scan(&sf.ID, &sf.UserID, &sf.Name, &filtersJSON, &sf.CategoryIDs,
+			&sf.NotifyOnNew, &sf.NotifyOnPriceDrop, &sf.CreatedAt, &sf.UpdatedAt) == nil {
+			json.Unmarshal(filtersJSON, &sf.Filters)
+			filters = append(filters, sf)
+		}
+	}
+	return filters, nil
+}
+
+func (p *Postgres) GetNewAdsSince(ctx context.Context, categoryIDs []string, since time.Time) ([]kl.Ad, error) {
+	query := `SELECT id, title, price_eur, category_id, url
+		FROM ads WHERE first_seen_at >= $1 AND is_active = true AND is_deleted = false`
+	args := []interface{}{since}
+	if len(categoryIDs) > 0 {
+		query += " AND category_id = ANY($2)"
+		args = append(args, categoryIDs)
+	}
+	query += " ORDER BY first_seen_at DESC LIMIT 100"
+
+	rows, err := p.pool.Query(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var ads []kl.Ad
+	for rows.Next() {
+		var ad kl.Ad
+		if rows.Scan(&ad.ID, &ad.Title, &ad.PriceEUR, &ad.CategoryID, &ad.URL) == nil {
+			ads = append(ads, ad)
+		}
+	}
+	return ads, nil
+}
+
+func (p *Postgres) GetRecentPriceDrops(ctx context.Context, categoryIDs []string, since time.Time) ([]kl.Ad, error) {
+	query := `SELECT a.id, a.title, a.price_eur, a.category_id, a.url
+		FROM ads a
+		JOIN ad_metrics m ON m.ad_id = a.id
+		WHERE m.price_dropped = true AND m.last_snapshot_at >= $1
+			AND a.is_active = true AND a.is_deleted = false`
+	args := []interface{}{since}
+	if len(categoryIDs) > 0 {
+		query += " AND a.category_id = ANY($2)"
+		args = append(args, categoryIDs)
+	}
+	query += " ORDER BY m.last_snapshot_at DESC LIMIT 100"
+
+	rows, err := p.pool.Query(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var ads []kl.Ad
+	for rows.Next() {
+		var ad kl.Ad
+		if rows.Scan(&ad.ID, &ad.Title, &ad.PriceEUR, &ad.CategoryID, &ad.URL) == nil {
+			ads = append(ads, ad)
+		}
+	}
+	return ads, nil
+}
+
 // ==================== NOTIFICATIONS ====================
 
 func (p *Postgres) GetNotifications(ctx context.Context, userID string, onlyUnread bool, limit int) ([]kl.Notification, error) {

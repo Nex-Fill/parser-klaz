@@ -212,6 +212,90 @@ func (m *Manager) StartCategorySyncLoop(ctx context.Context) {
 	}()
 }
 
+// ==================== SAVED FILTER NOTIFICATIONS ====================
+
+func (m *Manager) StartFilterNotificationLoop(ctx context.Context) {
+	go func() {
+		time.Sleep(2 * time.Minute)
+		lastCheck := time.Now()
+		ticker := time.NewTicker(10 * time.Minute)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				m.checkSavedFilters(ctx, lastCheck)
+				lastCheck = time.Now()
+			}
+		}
+	}()
+	log.Info().Msg("filter notification loop started (every 10 min)")
+}
+
+func (m *Manager) checkSavedFilters(ctx context.Context, since time.Time) {
+	filters, err := m.db.GetActiveNotifyFilters(ctx)
+	if err != nil || len(filters) == 0 {
+		return
+	}
+
+	for _, sf := range filters {
+		if sf.NotifyOnNew {
+			newAds, err := m.db.GetNewAdsSince(ctx, sf.CategoryIDs, since)
+			if err != nil || len(newAds) == 0 {
+				continue
+			}
+			title := fmt.Sprintf("%d new ads matching \"%s\"", len(newAds), sf.Name)
+			body := ""
+			for i, ad := range newAds {
+				if i >= 5 {
+					body += fmt.Sprintf("... and %d more", len(newAds)-5)
+					break
+				}
+				body += fmt.Sprintf("• %s — €%.0f\n", ad.Title, ad.PriceEUR)
+			}
+			n := &kl.Notification{
+				UserID: sf.UserID,
+				Type:   "new_ads",
+				Title:  title,
+				Body:   body,
+				Data: map[string]interface{}{
+					"filter_id": sf.ID,
+					"count":     len(newAds),
+				},
+			}
+			m.db.CreateNotification(ctx, n)
+		}
+
+		if sf.NotifyOnPriceDrop {
+			drops, err := m.db.GetRecentPriceDrops(ctx, sf.CategoryIDs, since)
+			if err != nil || len(drops) == 0 {
+				continue
+			}
+			title := fmt.Sprintf("%d price drops matching \"%s\"", len(drops), sf.Name)
+			body := ""
+			for i, ad := range drops {
+				if i >= 5 {
+					body += fmt.Sprintf("... and %d more", len(drops)-5)
+					break
+				}
+				body += fmt.Sprintf("• %s — €%.0f\n", ad.Title, ad.PriceEUR)
+			}
+			n := &kl.Notification{
+				UserID: sf.UserID,
+				Type:   "price_drop",
+				Title:  title,
+				Body:   body,
+				Data: map[string]interface{}{
+					"filter_id": sf.ID,
+					"count":     len(drops),
+				},
+			}
+			m.db.CreateNotification(ctx, n)
+		}
+	}
+}
+
 // ==================== INSTANT RECHECK (user-triggered) ====================
 
 func (m *Manager) InstantRecheck(ctx context.Context, adID string) (*kl.Ad, error) {

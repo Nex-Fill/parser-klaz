@@ -123,10 +123,11 @@ func (s *Server) Router() http.Handler {
 			r.Get("/dashboard", s.dashboard)
 			r.Get("/debug/raw/{adID}", s.debugRawFetch)
 			r.Get("/debug/batch-counters", s.debugBatchCounters)
-		})
 
-		r.Route("/proxy", func(r chi.Router) {
-			r.Get("/stats", s.proxyStats)
+			r.Route("/proxy", func(r chi.Router) {
+				r.Use(s.adminOnly)
+				r.Get("/stats", s.proxyStats)
+			})
 		})
 	})
 
@@ -161,6 +162,22 @@ func (s *Server) authMiddleware(next http.Handler) http.Handler {
 		}
 		ctx := context.WithValue(r.Context(), ctxUserID, userID)
 		next.ServeHTTP(w, r.WithContext(ctx))
+	})
+}
+
+func (s *Server) adminOnly(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		userID, ok := getUserID(r)
+		if !ok {
+			respondError(w, 401, "unauthorized")
+			return
+		}
+		user, err := s.db.GetUserByID(r.Context(), userID)
+		if err != nil || !user.IsAdmin {
+			respondError(w, 403, "admin access required")
+			return
+		}
+		next.ServeHTTP(w, r)
 	})
 }
 
