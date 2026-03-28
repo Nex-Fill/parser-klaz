@@ -48,12 +48,10 @@ func (m *Manager) StartBatchCountersLoop(ctx context.Context) {
 
 	go func() {
 		time.Sleep(20 * time.Second)
-		m.parseLock.Lock()
 		log.Info().Msg("running initial batch counters update")
 		if err := m.scraper.BatchCountersUpdate(ctx); err != nil {
 			log.Error().Err(err).Msg("batch counters failed")
 		}
-		m.parseLock.Unlock()
 
 		ticker := time.NewTicker(45 * time.Minute)
 		defer ticker.Stop()
@@ -63,12 +61,10 @@ func (m *Manager) StartBatchCountersLoop(ctx context.Context) {
 			case <-ctx.Done():
 				return
 			case <-ticker.C:
-				m.parseLock.Lock()
 				log.Info().Msg("batch counters cycle")
 				if err := m.scraper.BatchCountersUpdate(ctx); err != nil {
 					log.Error().Err(err).Msg("batch counters failed")
 				}
-				m.parseLock.Unlock()
 			}
 		}
 	}()
