@@ -140,10 +140,10 @@ func Load() *Config {
 			MinPoolSize:    getEnvInt("PROXY_MIN_POOL", 10),
 		},
 		Workers: WorkerConfig{
-			ParseWorkers:  getEnvInt("PARSE_WORKERS", 50),
+			ParseWorkers:  getEnvInt("PARSE_WORKERS", 250),
 			ImageWorkers:  getEnvInt("IMAGE_WORKERS", 50),
 			CheckWorkers:  getEnvInt("CHECK_WORKERS", 30),
-			MaxConcurrent: getEnvInt("MAX_CONCURRENT", 100),
+			MaxConcurrent: getEnvInt("MAX_CONCURRENT", 300),
 		},
 	}
 }
