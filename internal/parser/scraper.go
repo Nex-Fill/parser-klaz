@@ -785,6 +785,37 @@ func (s *Scraper) LoadMissingImages(ctx context.Context, batchSize int) error {
 	return nil
 }
 
+// ==================== DEBUG ====================
+
+func (s *Scraper) DebugRawFetch(ctx context.Context, adID string) map[string]interface{} {
+	result := map[string]interface{}{}
+
+	if body, err := s.doRequest(ctx, kl.BuildAdURL(adID)); err == nil {
+		var raw interface{}
+		json.Unmarshal(body, &raw)
+		result["ad_detail"] = raw
+	} else {
+		result["ad_detail_error"] = err.Error()
+	}
+
+	if body, err := s.doRequest(ctx, kl.BuildViewsURL(adID)); err == nil {
+		var raw interface{}
+		json.Unmarshal(body, &raw)
+		result["views"] = raw
+	} else {
+		result["views_error"] = err.Error()
+	}
+
+	searchURL := kl.BuildSearchURL(kl.SearchParams{Page: 0, Size: 1})
+	if body, err := s.doRequest(ctx, searchURL+"&adId="+adID); err == nil {
+		var raw interface{}
+		json.Unmarshal(body, &raw)
+		result["search_by_id"] = raw
+	}
+
+	return result
+}
+
 // ==================== CATEGORY SYNC ====================
 
 func (s *Scraper) SyncCategories(ctx context.Context) error {

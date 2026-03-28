@@ -106,6 +106,7 @@ func (s *Server) Router() http.Handler {
 			})
 
 			r.Get("/dashboard", s.dashboard)
+			r.Get("/debug/raw/{adID}", s.debugRawFetch)
 		})
 
 		r.Route("/proxy", func(r chi.Router) {
@@ -532,6 +533,16 @@ func (s *Server) dashboard(w http.ResponseWriter, r *http.Request) {
 	stats.ProxyCount = s.proxyPool.Count()
 	stats.RunningTasks = len(s.taskMgr.ListTasks(""))
 	respond(w, 200, map[string]interface{}{"Status": true, "data": stats, "counters": s.cache.GetStats(r.Context())})
+}
+
+func (s *Server) debugRawFetch(w http.ResponseWriter, r *http.Request) {
+	adID := chi.URLParam(r, "adID")
+	if adID == "" {
+		respondError(w, 400, "adID required")
+		return
+	}
+	result := s.taskMgr.Scraper().DebugRawFetch(r.Context(), adID)
+	respond(w, 200, result)
 }
 
 func (s *Server) health(w http.ResponseWriter, r *http.Request) {

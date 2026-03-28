@@ -26,6 +26,8 @@ type Manager struct {
 	parseLock     sync.Mutex
 }
 
+func (m *Manager) Scraper() *parser.Scraper { return m.scraper }
+
 func NewManager(db *storage.Postgres, cache *storage.Cache, scraper *parser.Scraper) *Manager {
 	return &Manager{
 		db:      db,
