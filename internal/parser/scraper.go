@@ -801,16 +801,29 @@ func (s *Scraper) DebugRawFetch(ctx context.Context, adID string) map[string]int
 	if body, err := s.doRequest(ctx, kl.BuildViewsURL(adID)); err == nil {
 		var raw interface{}
 		json.Unmarshal(body, &raw)
-		result["views"] = raw
+		result["views_old"] = raw
 	} else {
-		result["views_error"] = err.Error()
+		result["views_old_error"] = err.Error()
 	}
 
-	searchURL := kl.BuildSearchURL(kl.SearchParams{Page: 0, Size: 1})
-	if body, err := s.doRequest(ctx, searchURL+"&adId="+adID); err == nil {
+	vipURL := fmt.Sprintf("https://api.kleinanzeigen.de/api/v2/counters/ads/vip?adIds=%s", adID)
+	if body, err := s.doRequest(ctx, vipURL); err == nil {
 		var raw interface{}
 		json.Unmarshal(body, &raw)
-		result["search_by_id"] = raw
+		result["views_v2_vip"] = raw
+		result["views_v2_vip_raw"] = string(body)
+	} else {
+		result["views_v2_vip_error"] = err.Error()
+	}
+
+	watchURL := fmt.Sprintf("https://api.kleinanzeigen.de/api/v2/counters/ads/watchlist?adIds=%s", adID)
+	if body, err := s.doRequest(ctx, watchURL); err == nil {
+		var raw interface{}
+		json.Unmarshal(body, &raw)
+		result["favorites_v2_watchlist"] = raw
+		result["favorites_v2_watchlist_raw"] = string(body)
+	} else {
+		result["favorites_v2_watchlist_error"] = err.Error()
 	}
 
 	return result
