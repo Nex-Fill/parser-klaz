@@ -386,6 +386,14 @@ func (s *Server) getAd(w http.ResponseWriter, r *http.Request) {
 	}
 
 	metrics, _ := s.db.GetAdMetrics(r.Context(), adID)
+	if metrics == nil {
+		metrics = &kl.AdMetrics{
+			AdID:             adID,
+			ViewsCurrent:     ad.Views,
+			FavoritesCurrent: ad.Favorites,
+			PriceCurrent:     ad.PriceEUR,
+		}
+	}
 	s.cache.CacheAd(r.Context(), ad)
 	respond(w, 200, map[string]interface{}{
 		"Status": true,

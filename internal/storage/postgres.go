@@ -192,13 +192,13 @@ func (p *Postgres) GetAd(ctx context.Context, id string) (*kl.Ad, error) {
 	err := p.pool.QueryRow(ctx, `
 		SELECT id, title, description, price, price_eur, contact_name,
 			category_id, location_id, ad_status, shipping_option, user_id,
-			user_since_date, poster_type, start_date, url, views, is_active,
+			user_since_date, poster_type, start_date, url, views, COALESCE(favorites, 0), is_active,
 			is_deleted, deleted_at, task_id, first_seen_at, created_at, updated_at, last_checked_at
 		FROM ads WHERE id = $1`, id,
 	).Scan(
 		&ad.ID, &ad.Title, &ad.Description, &ad.Price, &ad.PriceEUR, &ad.ContactName,
 		&ad.CategoryID, &ad.LocationID, &ad.AdStatus, &ad.ShippingOption, &ad.UserID,
-		&ad.UserSinceDate, &ad.PosterType, &ad.StartDate, &ad.URL, &ad.Views, &ad.IsActive,
+		&ad.UserSinceDate, &ad.PosterType, &ad.StartDate, &ad.URL, &ad.Views, &ad.Favorites, &ad.IsActive,
 		&ad.IsDeleted, &ad.DeletedAt, &ad.TaskID, &ad.FirstSeenAt, &ad.CreatedAt, &ad.UpdatedAt, &ad.LastCheckedAt,
 	)
 	if err != nil {
