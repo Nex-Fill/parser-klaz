@@ -665,8 +665,20 @@ func (s *Scraper) InstantRecheck(ctx context.Context, adID string) (*kl.Ad, erro
 		ad.TaskID = existing.TaskID
 	}
 
+	ids := []string{adID}
+	if body, err := s.doRequest(ctx, kl.BuildBatchViewsURL(ids)); err == nil {
+		if vm := kl.ParseCountersResponse(body); vm[adID] > 0 {
+			ad.Views = vm[adID]
+		}
+	}
+	if body, err := s.doRequest(ctx, kl.BuildBatchFavoritesURL(ids)); err == nil {
+		if fm := kl.ParseCountersResponse(body); fm[adID] > 0 {
+			ad.Favorites = fm[adID]
+		}
+	}
+
 	s.db.UpsertAd(ctx, ad)
-	s.snapBuf.Record(adID, ad.Views, ad.PriceEUR)
+	s.snapBuf.RecordFull(adID, ad.Views, ad.Favorites, ad.PriceEUR)
 	s.cache.CacheAd(ctx, ad)
 	s.cache.PublishAdUpdate(ctx, ad)
 
