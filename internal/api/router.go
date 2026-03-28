@@ -107,6 +107,7 @@ func (s *Server) Router() http.Handler {
 
 			r.Get("/dashboard", s.dashboard)
 			r.Get("/debug/raw/{adID}", s.debugRawFetch)
+			r.Get("/debug/batch-counters", s.debugBatchCounters)
 		})
 
 		r.Route("/proxy", func(r chi.Router) {
@@ -542,6 +543,22 @@ func (s *Server) debugRawFetch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	result := s.taskMgr.Scraper().DebugRawFetch(r.Context(), adID)
+	respond(w, 200, result)
+}
+
+func (s *Server) debugBatchCounters(w http.ResponseWriter, r *http.Request) {
+	count := 50
+	if c := r.URL.Query().Get("count"); c != "" {
+		if n, err := strconv.Atoi(c); err == nil && n > 0 && n <= 500 {
+			count = n
+		}
+	}
+	ids, err := s.db.QueryAdIDs(r.Context(), `SELECT id FROM ads WHERE is_active = true AND is_deleted = false LIMIT $1`, count)
+	if err != nil {
+		respondError(w, 500, err.Error())
+		return
+	}
+	result := s.taskMgr.Scraper().DebugBatchCounters(r.Context(), ids)
 	respond(w, 200, result)
 }
 

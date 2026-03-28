@@ -829,6 +829,35 @@ func (s *Scraper) DebugRawFetch(ctx context.Context, adID string) map[string]int
 	return result
 }
 
+func (s *Scraper) DebugBatchCounters(ctx context.Context, adIDs []string) map[string]interface{} {
+	result := map[string]interface{}{"ad_count": len(adIDs)}
+	ids := strings.Join(adIDs, ",")
+
+	vipURL := fmt.Sprintf("https://api.kleinanzeigen.de/api/v2/counters/ads/vip?adIds=%s", ids)
+	if body, err := s.doRequest(ctx, vipURL); err == nil {
+		var raw interface{}
+		json.Unmarshal(body, &raw)
+		result["vip"] = raw
+		result["vip_raw"] = string(body)
+		result["vip_size"] = len(body)
+	} else {
+		result["vip_error"] = err.Error()
+	}
+
+	watchURL := fmt.Sprintf("https://api.kleinanzeigen.de/api/v2/counters/ads/watchlist?adIds=%s", ids)
+	if body, err := s.doRequest(ctx, watchURL); err == nil {
+		var raw interface{}
+		json.Unmarshal(body, &raw)
+		result["watchlist"] = raw
+		result["watchlist_raw"] = string(body)
+		result["watchlist_size"] = len(body)
+	} else {
+		result["watchlist_error"] = err.Error()
+	}
+
+	return result
+}
+
 // ==================== CATEGORY SYNC ====================
 
 func (s *Scraper) SyncCategories(ctx context.Context) error {
