@@ -131,6 +131,11 @@ func (p *Postgres) UpsertAdsFromSearch(ctx context.Context, ads []*kl.Ad) error 
 	return nil
 }
 
+func (p *Postgres) UpdateAdViews(ctx context.Context, adID string, views int) error {
+	_, err := p.pool.Exec(ctx, `UPDATE ads SET views = $2, last_checked_at = NOW(), updated_at = NOW() WHERE id = $1`, adID, views)
+	return err
+}
+
 func (p *Postgres) MarkAdDeleted(ctx context.Context, adID string) error {
 	now := time.Now()
 	_, err := p.pool.Exec(ctx, `

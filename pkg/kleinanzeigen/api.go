@@ -59,6 +59,26 @@ func BuildViewsURL(adID string) string {
 	return fmt.Sprintf("https://www.kleinanzeigen.de/s-vac-inc-get.json?adId=%s", adID)
 }
 
+func ParseViewsResponse(body []byte) int {
+	var resp struct {
+		Counter struct {
+			NumVisits int `json:"numVisits"`
+		} `json:"counter"`
+	}
+	if json.Unmarshal(body, &resp) == nil {
+		return resp.Counter.NumVisits
+	}
+	var simple map[string]interface{}
+	if json.Unmarshal(body, &simple) == nil {
+		if c, ok := simple["counter"].(map[string]interface{}); ok {
+			if v, ok := c["numVisits"].(float64); ok {
+				return int(v)
+			}
+		}
+	}
+	return 0
+}
+
 func AdPublicURL(adID string) string {
 	return fmt.Sprintf("https://www.kleinanzeigen.de/s-anzeige/%s", adID)
 }

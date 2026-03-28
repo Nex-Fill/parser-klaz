@@ -565,7 +565,11 @@ func (s *Scraper) RecheckByPriority(ctx context.Context) error {
 		log.Info().Str("tier", tier.Name).Int("count", len(ids)).Msg("recheck tier started")
 		start := time.Now()
 
-		s.recheckBatch(ctx, ids)
+		if tier.Name == "fresh" || tier.Name == "stale" {
+			s.recheckBatchViewsOnly(ctx, ids)
+		} else {
+			s.recheckBatch(ctx, ids)
+		}
 
 		log.Info().
 			Str("tier", tier.Name).
@@ -577,6 +581,14 @@ func (s *Scraper) RecheckByPriority(ctx context.Context) error {
 }
 
 func (s *Scraper) recheckBatch(ctx context.Context, ids []string) {
+	s.recheckBatchMode(ctx, ids, false)
+}
+
+func (s *Scraper) recheckBatchViewsOnly(ctx context.Context, ids []string) {
+	s.recheckBatchMode(ctx, ids, true)
+}
+
+func (s *Scraper) recheckBatchMode(ctx context.Context, ids []string, viewsOnly bool) {
 	batchSize := 500
 	for i := 0; i < len(ids); i += batchSize {
 		select {
@@ -597,10 +609,30 @@ func (s *Scraper) recheckBatch(ctx context.Context, ids []string) {
 			wg.Add(1)
 			s.pool.Submit(func() {
 				defer wg.Done()
-				s.recheckOneAd(ctx, id)
+				if viewsOnly {
+					s.recheckViewsOnly(ctx, id)
+				} else {
+					s.recheckOneAd(ctx, id)
+				}
 			})
 		}
 		wg.Wait()
+	}
+}
+
+func (s *Scraper) recheckViewsOnly(ctx context.Context, adID string) {
+	body, err := s.doRequest(ctx, kl.BuildViewsURL(adID))
+	if err != nil {
+		if strings.Contains(err.Error(), "404") {
+			s.db.MarkAdDeleted(ctx, adID)
+			return
+		}
+		return
+	}
+	views := kl.ParseViewsResponse(body)
+	if views > 0 {
+		s.db.UpdateAdViews(ctx, adID, views)
+		s.snapBuf.Record(adID, views, 0)
 	}
 }
 
