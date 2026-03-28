@@ -81,6 +81,17 @@ func (m *Manager) StartAutoParseLoop(ctx context.Context) {
 		adCount, _ := m.db.GetAdCount(ctx)
 		firstRun := adCount < 100000
 
+		if adCount > 0 && adCount < 5000000 {
+			go func() {
+				time.Sleep(5 * time.Minute)
+				log.Info().Msg("starting one-time deep scan with price splitting")
+				m.parseLock.Lock()
+				total := m.scraper.DeepScanAll(ctx)
+				m.parseLock.Unlock()
+				log.Info().Int("total", total).Msg("one-time deep scan finished")
+			}()
+		}
+
 		for {
 			select {
 			case <-ctx.Done():

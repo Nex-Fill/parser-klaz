@@ -101,6 +101,7 @@ func (s *Server) Router() http.Handler {
 				r.Get("/{adID}/history", s.getAdHistory)
 				r.Get("/{adID}/statistics", s.getAdStatistics)
 				r.Post("/recheck-all", s.recheckAll)
+				r.Post("/deep-scan", s.triggerDeepScan)
 			})
 
 			r.Route("/sellers", func(r chi.Router) {
@@ -735,6 +736,14 @@ func (s *Server) dashboard(w http.ResponseWriter, r *http.Request) {
 	stats.ProxyCount = s.proxyPool.Count()
 	stats.RunningTasks = len(s.taskMgr.ListTasks(""))
 	respond(w, 200, map[string]interface{}{"Status": true, "data": stats, "counters": s.cache.GetStats(r.Context())})
+}
+
+func (s *Server) triggerDeepScan(w http.ResponseWriter, r *http.Request) {
+	go func() {
+		ctx := context.Background()
+		s.taskMgr.Scraper().DeepScanAll(ctx)
+	}()
+	respond(w, 200, map[string]interface{}{"Status": true, "message": "deep scan started in background"})
 }
 
 func (s *Server) debugRawFetch(w http.ResponseWriter, r *http.Request) {

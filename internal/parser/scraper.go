@@ -800,6 +800,93 @@ func (s *Scraper) LoadMissingImages(ctx context.Context, batchSize int) (int, er
 	return len(ids), nil
 }
 
+// ==================== DEEP SCAN WITH PRICE SPLITTING ====================
+
+func (s *Scraper) DeepScanAll(ctx context.Context) int {
+	cats, _ := s.db.GetAllCategories(ctx)
+	if len(cats) == 0 {
+		return 0
+	}
+
+	var leafCats []string
+	for _, c := range cats {
+		if !c.HasChildren {
+			leafCats = append(leafCats, c.ID)
+		}
+	}
+
+	priceBuckets := []struct{ min, max int }{
+		{0, 5}, {5, 10}, {10, 20}, {20, 50},
+		{50, 100}, {100, 200}, {200, 500},
+		{500, 1000}, {1000, 2000}, {2000, 5000},
+		{5000, 10000}, {10000, 50000}, {50000, 0},
+	}
+
+	log.Info().Int("categories", len(leafCats)).Int("price_buckets", len(priceBuckets)).Msg("deep scan: starting")
+	start := time.Now()
+	var totalAds int
+
+	for _, catID := range leafCats {
+		select {
+		case <-ctx.Done():
+			return totalAds
+		default:
+		}
+
+		for _, bucket := range priceBuckets {
+			for page := 0; page < 100; page++ {
+				params := kl.SearchParams{
+					CategoryID: catID,
+					Page:       page,
+					Size:       100,
+				}
+				if bucket.min > 0 {
+					params.MinPrice = &bucket.min
+				}
+				if bucket.max > 0 {
+					params.MaxPrice = &bucket.max
+				}
+
+				result, err := s.searchAds(ctx, params)
+				if err != nil || len(result.Ads) == 0 {
+					break
+				}
+
+				var ads []*kl.Ad
+				for _, raw := range result.Ads {
+					if raw.Raw == nil {
+						continue
+					}
+					ad, _ := kl.ParseAdFromSearchResult(raw.Raw)
+					if ad == nil || ad.ID == "" {
+						continue
+					}
+					if ad.CategoryID == "" {
+						ad.CategoryID = catID
+					}
+					ads = append(ads, ad)
+				}
+
+				if len(ads) > 0 {
+					s.db.UpsertAdsFromSearch(ctx, ads)
+					totalAds += len(ads)
+				}
+
+				if len(result.Ads) < 100 {
+					break
+				}
+			}
+		}
+	}
+
+	log.Info().
+		Int("total_ads", totalAds).
+		Dur("took", time.Since(start)).
+		Msg("deep scan: complete")
+
+	return totalAds
+}
+
 // ==================== NEW ADS WATCHER (global feed) ====================
 
 func (s *Scraper) ScanNewAds(ctx context.Context, pages int) int {
