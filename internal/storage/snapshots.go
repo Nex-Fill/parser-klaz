@@ -310,6 +310,12 @@ func (p *Postgres) SearchAdsWithMetrics(ctx context.Context, req kl.AdSearchRequ
 	if req.HasImages != nil && *req.HasImages {
 		where = append(where, "EXISTS (SELECT 1 FROM ad_images ai WHERE ai.ad_id = a.id)")
 	}
+	if req.FavoritesMin != nil {
+		add("a.favorites >= $%d", *req.FavoritesMin)
+	}
+	if req.FavoritesMax != nil {
+		add("a.favorites <= $%d", *req.FavoritesMax)
+	}
 	if req.ViewsDelta1hMin != nil {
 		add("m.views_delta_1h >= $%d", *req.ViewsDelta1hMin)
 	}
@@ -324,6 +330,15 @@ func (p *Postgres) SearchAdsWithMetrics(ctx context.Context, req kl.AdSearchRequ
 	}
 	if req.ViewsPerHourMin != nil {
 		add("m.views_per_hour >= $%d", *req.ViewsPerHourMin)
+	}
+	if req.FavoritesDelta1hMin != nil {
+		add("COALESCE(m.favorites_delta_1h, 0) >= $%d", *req.FavoritesDelta1hMin)
+	}
+	if req.FavoritesDelta24hMin != nil {
+		add("COALESCE(m.favorites_delta_24h, 0) >= $%d", *req.FavoritesDelta24hMin)
+	}
+	if req.FavoritesPerHourMin != nil {
+		add("COALESCE(m.favorites_per_hour, 0) >= $%d", *req.FavoritesPerHourMin)
 	}
 	if req.PriceDropped != nil && *req.PriceDropped {
 		where = append(where, "m.price_dropped = true")
@@ -343,6 +358,8 @@ func (p *Postgres) SearchAdsWithMetrics(ctx context.Context, req kl.AdSearchRequ
 	sortDir := "DESC"
 	allowed := map[string]string{
 		"price": "a.price_eur", "views": "a.views", "favorites": "a.favorites",
+		"favorites_delta_1h": "COALESCE(m.favorites_delta_1h, 0)", "favorites_delta_24h": "COALESCE(m.favorites_delta_24h, 0)",
+		"favorites_per_hour": "COALESCE(m.favorites_per_hour, 0)",
 		"created_at": "a.created_at", "updated_at": "a.updated_at",
 		"start_date": "a.start_date", "first_seen": "a.first_seen_at",
 		"views_delta_1h": "COALESCE(m.views_delta_1h, 0)", "views_delta_24h": "COALESCE(m.views_delta_24h, 0)",

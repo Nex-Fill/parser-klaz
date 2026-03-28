@@ -230,11 +230,19 @@ type AdSearchRequest struct {
 	HasImages   *bool    `json:"has_images,omitempty"`
 	TaskID      string   `json:"task_id,omitempty"`
 
+	FavoritesMin *int `json:"favorites_min,omitempty"`
+	FavoritesMax *int `json:"favorites_max,omitempty"`
+
 	ViewsDelta1hMin  *int     `json:"views_delta_1h_min,omitempty"`
 	ViewsDelta1hMax  *int     `json:"views_delta_1h_max,omitempty"`
 	ViewsDelta24hMin *int     `json:"views_delta_24h_min,omitempty"`
 	ViewsDelta24hMax *int     `json:"views_delta_24h_max,omitempty"`
 	ViewsPerHourMin  *float64 `json:"views_per_hour_min,omitempty"`
+
+	FavoritesDelta1hMin  *int     `json:"favorites_delta_1h_min,omitempty"`
+	FavoritesDelta24hMin *int     `json:"favorites_delta_24h_min,omitempty"`
+	FavoritesPerHourMin  *float64 `json:"favorites_per_hour_min,omitempty"`
+
 	PriceDropped     *bool    `json:"price_dropped,omitempty"`
 
 	SortBy    string `json:"sort_by,omitempty"`
