@@ -947,7 +947,7 @@ func (s *Scraper) BatchCountersUpdate(ctx context.Context) error {
 	start := time.Now()
 
 	const batchSize = 75
-	var totalViews, totalFav, deleted int
+	var totalViews, totalFav int
 	var mu sync.Mutex
 
 	for i := 0; i < len(ids); i += batchSize * 50 {
@@ -995,11 +995,16 @@ func (s *Scraper) BatchCountersUpdate(ctx context.Context) error {
 				}()
 				vwg.Wait()
 
+				bothFailed := viewsMap == nil && favMap == nil
 				if viewsMap == nil {
 					viewsMap = make(map[string]int)
 				}
 				if favMap == nil {
 					favMap = make(map[string]int)
+				}
+
+				if bothFailed {
+					return
 				}
 
 				for _, id := range batch {
@@ -1010,27 +1015,13 @@ func (s *Scraper) BatchCountersUpdate(ctx context.Context) error {
 					}
 				}
 
-				var deletedIDs []string
-				for _, id := range batch {
-					_, inViews := viewsMap[id]
-					_, inFav := favMap[id]
-					if !inViews && !inFav {
-						deletedIDs = append(deletedIDs, id)
-					}
-				}
-
 				if err := s.db.BatchUpdateCounters(ctx, viewsMap, favMap); err != nil {
 					log.Warn().Err(err).Msg("batch counters DB update failed")
-				}
-
-				for _, id := range deletedIDs {
-					s.db.MarkAdDeleted(ctx, id)
 				}
 
 				mu.Lock()
 				totalViews += len(viewsMap)
 				totalFav += len(favMap)
-				deleted += len(deletedIDs)
 				mu.Unlock()
 			})
 		}
@@ -1041,7 +1032,6 @@ func (s *Scraper) BatchCountersUpdate(ctx context.Context) error {
 		Int("total_ads", len(ids)).
 		Int("views_updated", totalViews).
 		Int("favorites_updated", totalFav).
-		Int("deleted_detected", deleted).
 		Dur("took", time.Since(start)).
 		Msg("batch counters: complete")
 
