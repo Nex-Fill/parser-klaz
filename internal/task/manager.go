@@ -49,63 +49,37 @@ func NewManager(db *storage.Postgres, cache *storage.Cache, scraper *parser.Scra
 func (m *Manager) StartBatchCountersLoop(ctx context.Context) {
 	ctx, m.recheckCancel = context.WithCancel(ctx)
 
-	runTier := func(tier string) {
-		m.countersRunning.Store(true)
-		defer m.countersRunning.Store(false)
-		if err := m.scraper.BatchCountersUpdateTier(ctx, tier); err != nil {
-			log.Error().Err(err).Str("tier", tier).Msg("batch counters failed")
-		}
-	}
-
 	go func() {
 		time.Sleep(15 * time.Second)
-		runTier("hot")
-
-		ticker := time.NewTicker(15 * time.Minute)
-		defer ticker.Stop()
+		cycle := 0
 		for {
 			select {
 			case <-ctx.Done():
 				return
-			case <-ticker.C:
-				runTier("hot")
+			default:
 			}
-		}
-	}()
 
-	go func() {
-		time.Sleep(60 * time.Second)
-		runTier("warm")
+			m.countersRunning.Store(true)
 
-		ticker := time.NewTicker(30 * time.Minute)
-		defer ticker.Stop()
-		for {
+			m.scraper.BatchCountersUpdateTier(ctx, "hot")
+			m.scraper.BatchCountersUpdateTier(ctx, "warm")
+
+			if cycle%4 == 0 {
+				m.scraper.BatchCountersUpdateTier(ctx, "cold")
+			}
+
+			m.countersRunning.Store(false)
+			cycle++
+
 			select {
 			case <-ctx.Done():
 				return
-			case <-ticker.C:
-				runTier("warm")
+			case <-time.After(5 * time.Minute):
 			}
 		}
 	}()
 
-	go func() {
-		time.Sleep(3 * time.Minute)
-		runTier("cold")
-
-		ticker := time.NewTicker(2 * time.Hour)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case <-ticker.C:
-				runTier("cold")
-			}
-		}
-	}()
-
-	log.Info().Msg("batch counters: hot=15min, warm=30min, cold=2h")
+	log.Info().Msg("batch counters: hot+warm every cycle, cold every 4th cycle (~2h)")
 }
 
 // StartAutoParseLoop continuously parses ALL categories for new ads.
