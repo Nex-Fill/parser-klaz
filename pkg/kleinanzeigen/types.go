@@ -24,6 +24,8 @@ type Ad struct {
 	Favorites         int        `json:"favorites" db:"favorites"`
 	AdType            string     `json:"ad_type" db:"ad_type"`
 	PriceType         string     `json:"price_type" db:"price_type"`
+	ShippingType      string     `json:"shipping_type" db:"shipping_type"`
+	ItemCondition     string     `json:"item_condition" db:"item_condition"`
 	BuyNowEnabled     bool       `json:"buy_now_enabled" db:"buy_now_enabled"`
 	BuyNowSelected    bool       `json:"buy_now_selected" db:"buy_now_selected"`
 	BuyNowPrice       float64    `json:"buy_now_price" db:"buy_now_price"`
@@ -251,8 +253,10 @@ type AdSearchRequest struct {
 	FavoritesDelta24hMax *int     `json:"favorites_delta_24h_max,omitempty"`
 	FavoritesPerHourMin  *float64 `json:"favorites_per_hour_min,omitempty"`
 
-	AdType    string `json:"ad_type,omitempty"`
-	PriceType string `json:"price_type,omitempty"`
+	AdType        string `json:"ad_type,omitempty"`
+	PriceType     string `json:"price_type,omitempty"`
+	ShippingType  string `json:"shipping_type,omitempty"`
+	ItemCondition string `json:"item_condition,omitempty"`
 
 	SellerAdsMin *int `json:"seller_ads_min,omitempty"`
 	SellerAdsMax *int `json:"seller_ads_max,omitempty"`

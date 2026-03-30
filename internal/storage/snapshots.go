@@ -358,6 +358,12 @@ func (p *Postgres) SearchAdsWithMetrics(ctx context.Context, req kl.AdSearchRequ
 	if req.SellerAdsMax != nil {
 		add("a.seller_ad_count <= $%d", *req.SellerAdsMax)
 	}
+	if req.ShippingType != "" {
+		add("a.shipping_type = $%d", req.ShippingType)
+	}
+	if req.ItemCondition != "" {
+		add("a.item_condition = $%d", req.ItemCondition)
+	}
 	if req.PriceDropped != nil && *req.PriceDropped {
 		where = append(where, "m.price_dropped = true")
 	}
@@ -426,6 +432,7 @@ func (p *Postgres) SearchAdsWithMetrics(ctx context.Context, req kl.AdSearchRequ
 			COALESCE(a.location_id, ''), COALESCE(a.user_id, ''),
 			COALESCE(a.ad_type, ''), COALESCE(a.price_type, ''),
 			COALESCE(a.buy_now_selected, false), COALESCE(a.buy_now_price, 0), COALESCE(a.user_rating, 0),
+			COALESCE(a.shipping_type, ''), COALESCE(a.item_condition, ''),
 			COALESCE(m.views_current, a.views, 0),
 			COALESCE(m.favorites_current, a.favorites, 0),
 			COALESCE(m.price_current, a.price_eur),
@@ -473,6 +480,7 @@ func (p *Postgres) SearchAdsWithMetrics(ctx context.Context, req kl.AdSearchRequ
 			&aw.URL, &aw.Views, &aw.Favorites, &aw.IsActive, &aw.IsDeleted, &aw.FirstSeenAt, &aw.CreatedAt,
 			&aw.LocationID, &aw.UserID,
 			&aw.AdType, &aw.PriceType, &aw.BuyNowSelected, &aw.BuyNowPrice, &aw.UserRating,
+			&aw.ShippingType, &aw.ItemCondition,
 			&m.ViewsCurrent, &m.FavoritesCurrent, &m.PriceCurrent,
 			&m.ViewsDelta1h, &m.ViewsDelta24h, &m.ViewsDelta7d, &m.ViewsPerHour,
 			&m.FavoritesDelta1h, &m.FavoritesDelta24h, &m.FavoritesDelta7d, &m.FavoritesPerHour,

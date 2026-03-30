@@ -260,6 +260,8 @@ func ParseAdResponse(body []byte) (*Ad, []string, error) {
 		}
 	}
 
+	parseAttributes(value, ad)
+
 	if locations, ok := value["locations"].(map[string]interface{}); ok {
 		if locList, ok := locations["location"].([]interface{}); ok && len(locList) > 0 {
 			if loc, ok := locList[0].(map[string]interface{}); ok {
@@ -465,6 +467,7 @@ func ParseAdFromSearchResult(raw map[string]interface{}) (*Ad, []string) {
 		}
 	}
 
+	parseAttributes(raw, ad)
 	ad.URL = AdPublicURL(ad.ID)
 
 	var photos []string
@@ -487,6 +490,55 @@ func ParseAdFromSearchResult(raw map[string]interface{}) (*Ad, []string) {
 func ImageHash(data []byte) string {
 	h := sha256.Sum256(data)
 	return fmt.Sprintf("%x", h)
+}
+
+func parseAttributes(data map[string]interface{}, ad *Ad) {
+	attrs, ok := data["attributes"].(map[string]interface{})
+	if !ok {
+		return
+	}
+	attrList, ok := attrs["attribute"].([]interface{})
+	if !ok {
+		return
+	}
+	for _, a := range attrList {
+		attr, ok := a.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		name, _ := attr["name"].(string)
+		if strings.HasSuffix(name, ".versand") {
+			values, ok := attr["value"].([]interface{})
+			if ok && len(values) > 0 {
+				if vm, ok := values[0].(map[string]interface{}); ok {
+					if v, ok := vm["value"].(string); ok {
+						if v == "ja" {
+							ad.ShippingType = "SHIPPING"
+						} else {
+							ad.ShippingType = "PICKUP"
+						}
+					}
+				}
+			}
+			if tag, ok := attr["localized-tag"].(string); ok && tag != "" {
+				if strings.Contains(tag, "Versand") {
+					ad.ShippingType = "SHIPPING"
+				} else if strings.Contains(tag, "Abholung") {
+					ad.ShippingType = "PICKUP"
+				}
+			}
+		}
+		if strings.HasSuffix(name, ".condition") {
+			values, ok := attr["value"].([]interface{})
+			if ok && len(values) > 0 {
+				if vm, ok := values[0].(map[string]interface{}); ok {
+					if v, ok := vm["value"].(string); ok {
+						ad.ItemCondition = v
+					}
+				}
+			}
+		}
+	}
 }
 
 func extractBestImageURL(pic map[string]interface{}) string {
