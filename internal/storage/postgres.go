@@ -50,8 +50,8 @@ func (p *Postgres) UpsertAd(ctx context.Context, ad *kl.Ad) error {
 			user_since_date, poster_type, start_date, url, views, favorites, is_active,
 			is_deleted, task_id, first_seen_at, created_at, updated_at, last_checked_at,
 			ad_type, price_type, buy_now_selected, buy_now_price, user_rating, image_urls,
-			shipping_type, item_condition)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32)
+			shipping_type, item_condition, attributes)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33)
 		ON CONFLICT (id) DO UPDATE SET
 			title = EXCLUDED.title,
 			description = EXCLUDED.description,
@@ -78,6 +78,7 @@ func (p *Postgres) UpsertAd(ctx context.Context, ad *kl.Ad) error {
 			image_urls = CASE WHEN array_length(EXCLUDED.image_urls, 1) > 0 THEN EXCLUDED.image_urls ELSE ads.image_urls END,
 			shipping_type = CASE WHEN EXCLUDED.shipping_type != '' THEN EXCLUDED.shipping_type ELSE ads.shipping_type END,
 			item_condition = CASE WHEN EXCLUDED.item_condition != '' THEN EXCLUDED.item_condition ELSE ads.item_condition END,
+			attributes = CASE WHEN EXCLUDED.attributes != '{}' THEN EXCLUDED.attributes ELSE COALESCE(ads.attributes, '{}') END,
 			updated_at = EXCLUDED.updated_at,
 			last_checked_at = EXCLUDED.last_checked_at`,
 		ad.ID, ad.Title, ad.Description, ad.Price, ad.PriceEUR, ad.ContactName,
@@ -85,7 +86,7 @@ func (p *Postgres) UpsertAd(ctx context.Context, ad *kl.Ad) error {
 		ad.UserSinceDate, ad.PosterType, ad.StartDate, ad.URL, ad.Views, ad.Favorites, ad.IsActive,
 		ad.IsDeleted, ad.TaskID, ad.FirstSeenAt, ad.CreatedAt, ad.UpdatedAt, time.Now(),
 		ad.AdType, ad.PriceType, ad.BuyNowSelected, ad.BuyNowPrice, ad.UserRating, ad.ImageURLs,
-		ad.ShippingType, ad.ItemCondition,
+		ad.ShippingType, ad.ItemCondition, ad.Attributes,
 	)
 	return err
 }
@@ -337,7 +338,8 @@ func (p *Postgres) GetAd(ctx context.Context, id string) (*kl.Ad, error) {
 			is_deleted, deleted_at, task_id, first_seen_at, created_at, updated_at, last_checked_at,
 			COALESCE(ad_type, ''), COALESCE(price_type, ''), COALESCE(buy_now_selected, false),
 			COALESCE(buy_now_price, 0), COALESCE(user_rating, 0), COALESCE(image_urls, ARRAY[]::TEXT[]),
-			COALESCE(shipping_type, ''), COALESCE(item_condition, '')
+			COALESCE(shipping_type, ''), COALESCE(item_condition, ''),
+			COALESCE(attributes, '{}')
 		FROM ads WHERE id = $1`, id,
 	).Scan(
 		&ad.ID, &ad.Title, &ad.Description, &ad.Price, &ad.PriceEUR, &ad.ContactName,
@@ -345,7 +347,7 @@ func (p *Postgres) GetAd(ctx context.Context, id string) (*kl.Ad, error) {
 		&ad.UserSinceDate, &ad.PosterType, &ad.StartDate, &ad.URL, &ad.Views, &ad.Favorites, &ad.IsActive,
 		&ad.IsDeleted, &ad.DeletedAt, &ad.TaskID, &ad.FirstSeenAt, &ad.CreatedAt, &ad.UpdatedAt, &ad.LastCheckedAt,
 		&ad.AdType, &ad.PriceType, &ad.BuyNowSelected, &ad.BuyNowPrice, &ad.UserRating, &ad.ImageURLs,
-		&ad.ShippingType, &ad.ItemCondition,
+		&ad.ShippingType, &ad.ItemCondition, &ad.Attributes,
 	)
 	if err != nil {
 		return nil, err

@@ -39,7 +39,8 @@ type Ad struct {
 	UpdatedAt      time.Time  `json:"updated_at" db:"updated_at"`
 	LastCheckedAt  time.Time  `json:"last_checked_at" db:"last_checked_at"`
 
-	ImageURLs []string `json:"image_urls,omitempty" db:"image_urls"`
+	Attributes map[string]string `json:"attributes,omitempty" db:"attributes"`
+	ImageURLs  []string          `json:"image_urls,omitempty" db:"image_urls"`
 	Images    []AdImage `json:"images,omitempty" db:"-"`
 }
 
@@ -255,8 +256,9 @@ type AdSearchRequest struct {
 
 	AdType        string `json:"ad_type,omitempty"`
 	PriceType     string `json:"price_type,omitempty"`
-	ShippingType  string `json:"shipping_type,omitempty"`
-	ItemCondition string `json:"item_condition,omitempty"`
+	ShippingType   string            `json:"shipping_type,omitempty"`
+	ItemCondition  string            `json:"item_condition,omitempty"`
+	Attributes     map[string]string `json:"attributes,omitempty"`
 
 	SellerAdsMin *int `json:"seller_ads_min,omitempty"`
 	SellerAdsMax *int `json:"seller_ads_max,omitempty"`

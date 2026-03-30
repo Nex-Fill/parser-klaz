@@ -501,42 +501,50 @@ func parseAttributes(data map[string]interface{}, ad *Ad) {
 	if !ok {
 		return
 	}
+	if ad.Attributes == nil {
+		ad.Attributes = make(map[string]string)
+	}
 	for _, a := range attrList {
 		attr, ok := a.(map[string]interface{})
 		if !ok {
 			continue
 		}
 		name, _ := attr["name"].(string)
-		if strings.HasSuffix(name, ".versand") {
-			values, ok := attr["value"].([]interface{})
-			if ok && len(values) > 0 {
-				if vm, ok := values[0].(map[string]interface{}); ok {
-					if v, ok := vm["value"].(string); ok {
-						if v == "ja" {
-							ad.ShippingType = "SHIPPING"
-						} else {
-							ad.ShippingType = "PICKUP"
-						}
-					}
-				}
-			}
-			if tag, ok := attr["localized-tag"].(string); ok && tag != "" {
-				if strings.Contains(tag, "Versand") {
-					ad.ShippingType = "SHIPPING"
-				} else if strings.Contains(tag, "Abholung") {
-					ad.ShippingType = "PICKUP"
+		if name == "" {
+			continue
+		}
+
+		// Extract short key: "handy_telekom.art" → "art"
+		shortKey := name
+		if idx := strings.LastIndex(name, "."); idx >= 0 {
+			shortKey = name[idx+1:]
+		}
+
+		// Get first value from array
+		values, _ := attr["value"].([]interface{})
+		if len(values) > 0 {
+			if vm, ok := values[0].(map[string]interface{}); ok {
+				if v, ok := vm["value"].(string); ok {
+					ad.Attributes[shortKey] = v
 				}
 			}
 		}
-		if strings.HasSuffix(name, ".condition") {
-			values, ok := attr["value"].([]interface{})
-			if ok && len(values) > 0 {
-				if vm, ok := values[0].(map[string]interface{}); ok {
-					if v, ok := vm["value"].(string); ok {
-						ad.ItemCondition = v
-					}
-				}
+
+		// Special fields
+		if shortKey == "versand" {
+			if tag, _ := attr["localized-tag"].(string); strings.Contains(tag, "Versand") {
+				ad.ShippingType = "SHIPPING"
+			} else {
+				ad.ShippingType = "PICKUP"
 			}
+			if ad.Attributes["versand"] == "ja" {
+				ad.ShippingType = "SHIPPING"
+			} else if ad.Attributes["versand"] == "nein" {
+				ad.ShippingType = "PICKUP"
+			}
+		}
+		if shortKey == "condition" {
+			ad.ItemCondition = ad.Attributes["condition"]
 		}
 	}
 }

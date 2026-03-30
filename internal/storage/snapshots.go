@@ -364,6 +364,19 @@ func (p *Postgres) SearchAdsWithMetrics(ctx context.Context, req kl.AdSearchRequ
 	if req.ItemCondition != "" {
 		add("a.item_condition = $%d", req.ItemCondition)
 	}
+	for key, val := range req.Attributes {
+		safeKey := strings.Map(func(r rune) rune {
+			if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '_' {
+				return r
+			}
+			return -1
+		}, key)
+		if safeKey != "" {
+			where = append(where, fmt.Sprintf("a.attributes->>'%s' = $%d", safeKey, n))
+			args = append(args, val)
+			n++
+		}
+	}
 	if req.PriceDropped != nil && *req.PriceDropped {
 		where = append(where, "m.price_dropped = true")
 	}
