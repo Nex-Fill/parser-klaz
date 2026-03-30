@@ -298,7 +298,11 @@ func (p *Postgres) SearchAdsWithMetrics(ctx context.Context, req kl.AdSearchRequ
 		add("a.start_date >= $%d", req.DateFrom)
 	}
 	if req.DateTo != "" {
-		add("a.start_date <= $%d", req.DateTo)
+		dateTo := req.DateTo
+		if len(dateTo) == 10 {
+			dateTo += "T23:59:59.999+9999"
+		}
+		add("a.start_date <= $%d", dateTo)
 	}
 	if req.TaskID != "" {
 		add("a.task_id = $%d", req.TaskID)
