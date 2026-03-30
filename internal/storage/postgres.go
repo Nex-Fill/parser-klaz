@@ -142,6 +142,36 @@ func (p *Postgres) BatchUpdateCounters(ctx context.Context, views map[string]int
 	for id, v := range views {
 		f := favorites[id]
 		batch.Queue(`UPDATE ads SET views = $2, favorites = $3, last_checked_at = NOW(), updated_at = NOW() WHERE id = $1`, id, v, f)
+
+		batch.Queue(`INSERT INTO ad_metrics (ad_id, views_current, favorites_current, updated_at)
+			VALUES ($1, $2, $3, NOW())
+			ON CONFLICT (ad_id) DO UPDATE SET
+				views_1h_ago = CASE WHEN ad_metrics.updated_at <= NOW() - INTERVAL '50 minutes' THEN ad_metrics.views_current ELSE ad_metrics.views_1h_ago END,
+				views_24h_ago = CASE WHEN ad_metrics.updated_at <= NOW() - INTERVAL '23 hours' THEN ad_metrics.views_current ELSE ad_metrics.views_24h_ago END,
+				views_7d_ago = CASE WHEN ad_metrics.updated_at <= NOW() - INTERVAL '6 days' THEN ad_metrics.views_current ELSE ad_metrics.views_7d_ago END,
+				favorites_1h_ago = CASE WHEN ad_metrics.updated_at <= NOW() - INTERVAL '50 minutes' THEN ad_metrics.favorites_current ELSE ad_metrics.favorites_1h_ago END,
+				favorites_24h_ago = CASE WHEN ad_metrics.updated_at <= NOW() - INTERVAL '23 hours' THEN ad_metrics.favorites_current ELSE ad_metrics.favorites_24h_ago END,
+				favorites_7d_ago = CASE WHEN ad_metrics.updated_at <= NOW() - INTERVAL '6 days' THEN ad_metrics.favorites_current ELSE ad_metrics.favorites_7d_ago END,
+				views_current = $2,
+				favorites_current = $3,
+				views_delta_1h = $2 - COALESCE(CASE WHEN ad_metrics.updated_at <= NOW() - INTERVAL '50 minutes' THEN ad_metrics.views_current ELSE ad_metrics.views_1h_ago END, $2),
+				views_delta_24h = $2 - COALESCE(CASE WHEN ad_metrics.updated_at <= NOW() - INTERVAL '23 hours' THEN ad_metrics.views_current ELSE ad_metrics.views_24h_ago END, $2),
+				views_delta_7d = $2 - COALESCE(CASE WHEN ad_metrics.updated_at <= NOW() - INTERVAL '6 days' THEN ad_metrics.views_current ELSE ad_metrics.views_7d_ago END, $2),
+				favorites_delta_1h = $3 - COALESCE(CASE WHEN ad_metrics.updated_at <= NOW() - INTERVAL '50 minutes' THEN ad_metrics.favorites_current ELSE ad_metrics.favorites_1h_ago END, $3),
+				favorites_delta_24h = $3 - COALESCE(CASE WHEN ad_metrics.updated_at <= NOW() - INTERVAL '23 hours' THEN ad_metrics.favorites_current ELSE ad_metrics.favorites_24h_ago END, $3),
+				favorites_delta_7d = $3 - COALESCE(CASE WHEN ad_metrics.updated_at <= NOW() - INTERVAL '6 days' THEN ad_metrics.favorites_current ELSE ad_metrics.favorites_7d_ago END, $3),
+				views_per_hour = CASE
+					WHEN EXTRACT(EPOCH FROM (NOW() - COALESCE(ad_metrics.first_seen_at, NOW()))) > 3600
+					THEN ($2 - COALESCE(ad_metrics.views_7d_ago, 0))::double precision / GREATEST(EXTRACT(EPOCH FROM (NOW() - COALESCE(ad_metrics.first_seen_at, NOW()))) / 3600.0, 1)
+					ELSE 0 END,
+				favorites_per_hour = CASE
+					WHEN EXTRACT(EPOCH FROM (NOW() - COALESCE(ad_metrics.first_seen_at, NOW()))) > 3600
+					THEN ($3 - COALESCE(ad_metrics.favorites_7d_ago, 0))::double precision / GREATEST(EXTRACT(EPOCH FROM (NOW() - COALESCE(ad_metrics.first_seen_at, NOW()))) / 3600.0, 1)
+					ELSE 0 END,
+				snapshot_count = ad_metrics.snapshot_count + 1,
+				last_snapshot_at = NOW(),
+				updated_at = NOW()`, id, v, f)
+
 		seen[id] = true
 	}
 	for id, f := range favorites {

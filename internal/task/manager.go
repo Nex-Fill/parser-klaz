@@ -207,24 +207,7 @@ func (m *Manager) StartImageLoaderLoop(ctx context.Context) {
 }
 
 func (m *Manager) StartMetricsRefreshLoop(ctx context.Context) {
-	go func() {
-		ticker := time.NewTicker(5 * time.Minute)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case <-ticker.C:
-				start := time.Now()
-				if err := m.db.RefreshMetrics(ctx); err != nil {
-					log.Error().Err(err).Msg("metrics refresh failed")
-				} else {
-					log.Info().Dur("took", time.Since(start)).Msg("metrics refreshed")
-				}
-			}
-		}
-	}()
-	log.Info().Msg("metrics refresh loop started (every 5 min)")
+	log.Info().Msg("metrics: computed inline in batch counters (no separate refresh needed)")
 }
 
 func (m *Manager) StartCategorySyncLoop(ctx context.Context) {
