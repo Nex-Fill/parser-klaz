@@ -42,39 +42,70 @@ func NewManager(db *storage.Postgres, cache *storage.Cache, scraper *parser.Scra
 
 // ==================== BACKGROUND LOOPS ====================
 
-// StartBatchCountersLoop runs batch views+favorites update every 45 minutes.
-// Uses /api/v2/counters/ads/vip + /watchlist — 50 ads per request, ~3500 ads/sec.
-// Also detects deleted ads (missing from counters response).
+// StartBatchCountersLoop runs tiered batch views+favorites updates.
+// Hot (new, <500 views): every 15 min
+// Warm (500+ views): every 30 min
+// Cold (old, <500 views): every 2 hours
 func (m *Manager) StartBatchCountersLoop(ctx context.Context) {
 	ctx, m.recheckCancel = context.WithCancel(ctx)
 
-	go func() {
-		time.Sleep(20 * time.Second)
+	runTier := func(tier string) {
 		m.countersRunning.Store(true)
-		log.Info().Msg("running initial batch counters update")
-		if err := m.scraper.BatchCountersUpdate(ctx); err != nil {
-			log.Error().Err(err).Msg("batch counters failed")
+		defer m.countersRunning.Store(false)
+		if err := m.scraper.BatchCountersUpdateTier(ctx, tier); err != nil {
+			log.Error().Err(err).Str("tier", tier).Msg("batch counters failed")
 		}
-		m.countersRunning.Store(false)
+	}
 
-		ticker := time.NewTicker(45 * time.Minute)
+	go func() {
+		time.Sleep(15 * time.Second)
+		runTier("hot")
+
+		ticker := time.NewTicker(15 * time.Minute)
 		defer ticker.Stop()
-
 		for {
 			select {
 			case <-ctx.Done():
 				return
 			case <-ticker.C:
-				m.countersRunning.Store(true)
-				log.Info().Msg("batch counters cycle")
-				if err := m.scraper.BatchCountersUpdate(ctx); err != nil {
-					log.Error().Err(err).Msg("batch counters failed")
-				}
-				m.countersRunning.Store(false)
+				runTier("hot")
 			}
 		}
 	}()
-	log.Info().Msg("batch counters loop started (every 45 min, views+favorites+deleted)")
+
+	go func() {
+		time.Sleep(60 * time.Second)
+		runTier("warm")
+
+		ticker := time.NewTicker(30 * time.Minute)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				runTier("warm")
+			}
+		}
+	}()
+
+	go func() {
+		time.Sleep(3 * time.Minute)
+		runTier("cold")
+
+		ticker := time.NewTicker(2 * time.Hour)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				runTier("cold")
+			}
+		}
+	}()
+
+	log.Info().Msg("batch counters: hot=15min, warm=30min, cold=2h")
 }
 
 // StartAutoParseLoop continuously parses ALL categories for new ads.

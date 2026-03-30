@@ -237,8 +237,32 @@ func (p *Postgres) CountExistingIDs(ctx context.Context, ids []string) (int, err
 	return count, err
 }
 
-func (p *Postgres) GetAllActiveAdIDs(ctx context.Context) ([]string, error) {
-	rows, err := p.pool.Query(ctx, `SELECT id FROM ads WHERE is_active = true AND is_deleted = false AND (last_checked_at < NOW() - INTERVAL '40 minutes' OR last_checked_at IS NULL) ORDER BY last_checked_at ASC NULLS FIRST`)
+func (p *Postgres) GetAdIDsByTier(ctx context.Context, tier string) ([]string, error) {
+	var query string
+	switch tier {
+	case "hot":
+		query = `SELECT id FROM ads WHERE is_active = true AND is_deleted = false
+			AND (views < 500 OR views IS NULL)
+			AND (first_seen_at >= NOW() - INTERVAL '48 hours' OR last_checked_at IS NULL)
+			AND (last_checked_at < NOW() - INTERVAL '14 minutes' OR last_checked_at IS NULL)
+			ORDER BY last_checked_at ASC NULLS FIRST`
+	case "warm":
+		query = `SELECT id FROM ads WHERE is_active = true AND is_deleted = false
+			AND views >= 500
+			AND (last_checked_at < NOW() - INTERVAL '29 minutes' OR last_checked_at IS NULL)
+			ORDER BY last_checked_at ASC NULLS FIRST`
+	case "cold":
+		query = `SELECT id FROM ads WHERE is_active = true AND is_deleted = false
+			AND first_seen_at < NOW() - INTERVAL '48 hours'
+			AND (views < 500 OR views IS NULL)
+			AND (last_checked_at < NOW() - INTERVAL '2 hours' OR last_checked_at IS NULL)
+			ORDER BY last_checked_at ASC NULLS FIRST`
+	default:
+		query = `SELECT id FROM ads WHERE is_active = true AND is_deleted = false
+			AND (last_checked_at < NOW() - INTERVAL '40 minutes' OR last_checked_at IS NULL)
+			ORDER BY last_checked_at ASC NULLS FIRST`
+	}
+	rows, err := p.pool.Query(ctx, query)
 	if err != nil {
 		return nil, err
 	}

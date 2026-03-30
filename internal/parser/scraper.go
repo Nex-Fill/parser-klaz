@@ -992,8 +992,8 @@ func (s *Scraper) ScanNewAds(ctx context.Context) int {
 
 // ==================== BATCH COUNTERS (views + favorites) ====================
 
-func (s *Scraper) BatchCountersUpdate(ctx context.Context) error {
-	ids, err := s.db.GetAllActiveAdIDs(ctx)
+func (s *Scraper) BatchCountersUpdateTier(ctx context.Context, tier string) error {
+	ids, err := s.db.GetAdIDsByTier(ctx, tier)
 	if err != nil {
 		return fmt.Errorf("get active IDs: %w", err)
 	}
@@ -1001,7 +1001,7 @@ func (s *Scraper) BatchCountersUpdate(ctx context.Context) error {
 		return nil
 	}
 
-	log.Info().Int("total_ads", len(ids)).Msg("batch counters: starting")
+	log.Info().Int("total_ads", len(ids)).Str("tier", tier).Msg("batch counters: starting")
 	start := time.Now()
 
 	const batchSize = 75
@@ -1090,6 +1090,7 @@ func (s *Scraper) BatchCountersUpdate(ctx context.Context) error {
 		Int("total_ads", len(ids)).
 		Int("views_updated", totalViews).
 		Int("favorites_updated", totalFav).
+		Str("tier", tier).
 		Dur("took", time.Since(start)).
 		Msg("batch counters: complete")
 
