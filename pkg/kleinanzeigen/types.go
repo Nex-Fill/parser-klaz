@@ -37,7 +37,8 @@ type Ad struct {
 	UpdatedAt      time.Time  `json:"updated_at" db:"updated_at"`
 	LastCheckedAt  time.Time  `json:"last_checked_at" db:"last_checked_at"`
 
-	Images []AdImage `json:"images,omitempty" db:"-"`
+	ImageURLs []string `json:"image_urls,omitempty" db:"image_urls"`
+	Images    []AdImage `json:"images,omitempty" db:"-"`
 }
 
 type AdImage struct {

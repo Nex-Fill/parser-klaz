@@ -423,7 +423,10 @@ func (p *Postgres) SearchAdsWithMetrics(ctx context.Context, req kl.AdSearchRequ
 			COALESCE(m.snapshot_count, 0),
 			COALESCE(m.first_seen_at, a.first_seen_at, a.created_at),
 			COALESCE(m.last_snapshot_at, a.updated_at),
-			(SELECT cdn_url FROM ad_images WHERE ad_id = a.id AND position = 0 LIMIT 1)
+			COALESCE(
+				(SELECT cdn_url FROM ad_images WHERE ad_id = a.id AND position = 0 LIMIT 1),
+				a.image_urls[1]
+			)
 		FROM ads a
 		LEFT JOIN ad_metrics m ON m.ad_id = a.id
 		WHERE %s

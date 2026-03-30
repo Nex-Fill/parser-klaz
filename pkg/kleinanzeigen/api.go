@@ -296,6 +296,7 @@ func ParseAdResponse(body []byte) (*Ad, []string, error) {
 		}
 	}
 
+	ad.ImageURLs = photos
 	return ad, photos, nil
 }
 
@@ -479,6 +480,7 @@ func ParseAdFromSearchResult(raw map[string]interface{}) (*Ad, []string) {
 		}
 	}
 
+	ad.ImageURLs = photos
 	return ad, photos
 }
 

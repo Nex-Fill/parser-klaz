@@ -49,8 +49,8 @@ func (p *Postgres) UpsertAd(ctx context.Context, ad *kl.Ad) error {
 			category_id, location_id, ad_status, shipping_option, user_id,
 			user_since_date, poster_type, start_date, url, views, favorites, is_active,
 			is_deleted, task_id, first_seen_at, created_at, updated_at, last_checked_at,
-			ad_type, price_type, buy_now_selected, buy_now_price, user_rating)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29)
+			ad_type, price_type, buy_now_selected, buy_now_price, user_rating, image_urls)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30)
 		ON CONFLICT (id) DO UPDATE SET
 			title = EXCLUDED.title,
 			description = EXCLUDED.description,
@@ -73,13 +73,14 @@ func (p *Postgres) UpsertAd(ctx context.Context, ad *kl.Ad) error {
 			buy_now_selected = EXCLUDED.buy_now_selected,
 			buy_now_price = CASE WHEN EXCLUDED.buy_now_price > 0 THEN EXCLUDED.buy_now_price ELSE ads.buy_now_price END,
 			user_rating = CASE WHEN EXCLUDED.user_rating > 0 THEN EXCLUDED.user_rating ELSE ads.user_rating END,
+			image_urls = CASE WHEN array_length(EXCLUDED.image_urls, 1) > 0 THEN EXCLUDED.image_urls ELSE ads.image_urls END,
 			updated_at = EXCLUDED.updated_at,
 			last_checked_at = EXCLUDED.last_checked_at`,
 		ad.ID, ad.Title, ad.Description, ad.Price, ad.PriceEUR, ad.ContactName,
 		ad.CategoryID, ad.LocationID, ad.AdStatus, ad.ShippingOption, ad.UserID,
 		ad.UserSinceDate, ad.PosterType, ad.StartDate, ad.URL, ad.Views, ad.Favorites, ad.IsActive,
 		ad.IsDeleted, ad.TaskID, ad.FirstSeenAt, ad.CreatedAt, ad.UpdatedAt, time.Now(),
-		ad.AdType, ad.PriceType, ad.BuyNowSelected, ad.BuyNowPrice, ad.UserRating,
+		ad.AdType, ad.PriceType, ad.BuyNowSelected, ad.BuyNowPrice, ad.UserRating, ad.ImageURLs,
 	)
 	return err
 }
@@ -126,17 +127,22 @@ func (p *Postgres) UpsertAdsFromSearch(ctx context.Context, ads []*kl.Ad) error 
 			INSERT INTO ads (id, title, description, price, price_eur, contact_name,
 				category_id, location_id, ad_status, shipping_option, user_id,
 				user_since_date, poster_type, start_date, url, views, is_active,
-				is_deleted, task_id, first_seen_at, created_at, updated_at, last_checked_at)
-			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,NULL)
+				is_deleted, task_id, first_seen_at, created_at, updated_at, last_checked_at,
+				ad_type, price_type, image_urls)
+			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,NULL,$23,$24,$25)
 			ON CONFLICT (id) DO UPDATE SET
 				title = EXCLUDED.title, description = EXCLUDED.description,
 				price = EXCLUDED.price, price_eur = EXCLUDED.price_eur,
 				ad_status = EXCLUDED.ad_status,
+				ad_type = CASE WHEN EXCLUDED.ad_type != '' THEN EXCLUDED.ad_type ELSE ads.ad_type END,
+				price_type = CASE WHEN EXCLUDED.price_type != '' THEN EXCLUDED.price_type ELSE ads.price_type END,
+				image_urls = CASE WHEN array_length(EXCLUDED.image_urls, 1) > 0 THEN EXCLUDED.image_urls ELSE ads.image_urls END,
 				updated_at = EXCLUDED.updated_at`,
 			ad.ID, ad.Title, ad.Description, ad.Price, ad.PriceEUR, ad.ContactName,
 			ad.CategoryID, ad.LocationID, ad.AdStatus, ad.ShippingOption, ad.UserID,
 			ad.UserSinceDate, ad.PosterType, ad.StartDate, ad.URL, ad.Views, ad.IsActive,
 			ad.IsDeleted, ad.TaskID, ad.FirstSeenAt, ad.CreatedAt, ad.UpdatedAt,
+			ad.AdType, ad.PriceType, ad.ImageURLs,
 		)
 	}
 	results := p.pool.SendBatch(ctx, batch)
@@ -261,14 +267,14 @@ func (p *Postgres) GetAd(ctx context.Context, id string) (*kl.Ad, error) {
 			user_since_date, poster_type, start_date, url, views, COALESCE(favorites, 0), is_active,
 			is_deleted, deleted_at, task_id, first_seen_at, created_at, updated_at, last_checked_at,
 			COALESCE(ad_type, ''), COALESCE(price_type, ''), COALESCE(buy_now_selected, false),
-			COALESCE(buy_now_price, 0), COALESCE(user_rating, 0)
+			COALESCE(buy_now_price, 0), COALESCE(user_rating, 0), COALESCE(image_urls, ARRAY[]::TEXT[])
 		FROM ads WHERE id = $1`, id,
 	).Scan(
 		&ad.ID, &ad.Title, &ad.Description, &ad.Price, &ad.PriceEUR, &ad.ContactName,
 		&ad.CategoryID, &ad.LocationID, &ad.AdStatus, &ad.ShippingOption, &ad.UserID,
 		&ad.UserSinceDate, &ad.PosterType, &ad.StartDate, &ad.URL, &ad.Views, &ad.Favorites, &ad.IsActive,
 		&ad.IsDeleted, &ad.DeletedAt, &ad.TaskID, &ad.FirstSeenAt, &ad.CreatedAt, &ad.UpdatedAt, &ad.LastCheckedAt,
-		&ad.AdType, &ad.PriceType, &ad.BuyNowSelected, &ad.BuyNowPrice, &ad.UserRating,
+		&ad.AdType, &ad.PriceType, &ad.BuyNowSelected, &ad.BuyNowPrice, &ad.UserRating, &ad.ImageURLs,
 	)
 	if err != nil {
 		return nil, err
