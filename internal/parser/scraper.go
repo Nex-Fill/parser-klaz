@@ -70,7 +70,7 @@ func (s *Scraper) RunTask(ctx context.Context, task *kl.ParseTask) error {
 	var totalFound, totalChecked atomic.Int64
 
 	g, gCtx := errgroup.WithContext(ctx)
-	g.SetLimit(len(task.CategoryURLs))
+	g.SetLimit(10)
 
 	for i, catURL := range task.CategoryURLs {
 		catURL := catURL
@@ -158,17 +158,8 @@ func (s *Scraper) parseCategory(ctx context.Context, task *kl.ParseTask, catID s
 			break
 		}
 
-		for _, raw := range searchResult.Ads {
-			if raw.ID != "" && raw.Raw != nil {
-				if p, ok := raw.Raw["price"].(map[string]interface{}); ok {
-					if amt, ok := p["amount"].(map[string]interface{}); ok {
-						if v, ok := amt["value"].(float64); ok && v > 0 {
-							s.snapBuf.Record(raw.ID, 0, v)
-						}
-					}
-				}
-			}
-		}
+		// Price-only snapshots removed — views=0 pollutes data.
+		// Snapshots are recorded in batch counters with real views+favorites.
 
 		pf, pc := s.processBatch(ctx, task, searchResult.Ads, catID)
 		found += pf
@@ -254,7 +245,9 @@ func (s *Scraper) processBatchFull(ctx context.Context, task *kl.ParseTask, rawA
 					return
 				}
 				ad.TaskID = task.ID
-				ad.CategoryID = catID
+				if ad.CategoryID == "" {
+					ad.CategoryID = catID
+				}
 				if !s.filter.Apply(ad, &task.Filters) {
 					return
 				}
@@ -262,7 +255,7 @@ func (s *Scraper) processBatchFull(ctx context.Context, task *kl.ParseTask, rawA
 				if s.media != nil && len(photos) > 0 && s.liveConfig.Get().ImageUploadEnabled {
 					images, _ = s.media.ProcessImages(ctx, ad.ID, photos)
 				}
-				s.snapBuf.Record(ad.ID, ad.Views, ad.PriceEUR)
+				s.snapBuf.RecordFull(ad.ID, ad.Views, ad.Favorites, ad.PriceEUR)
 
 				mu.Lock()
 				ads = append(ads, ad)
@@ -272,6 +265,14 @@ func (s *Scraper) processBatchFull(ctx context.Context, task *kl.ParseTask, rawA
 		}
 		wg.Wait()
 		checked += len(batch)
+
+		if len(ads) > 0 {
+			s.db.UpsertAdsBatch(ctx, ads)
+			found += len(ads)
+		}
+		if len(allImages) > 0 {
+			s.db.UpsertImages(ctx, allImages)
+		}
 	}
 	return
 }
@@ -632,7 +633,7 @@ func (s *Scraper) recheckViewsOnly(ctx context.Context, adID string) {
 	views := kl.ParseViewsResponse(body)
 	if views > 0 {
 		s.db.UpdateAdViews(ctx, adID, views)
-		s.snapBuf.Record(adID, views, 0)
+		s.snapBuf.RecordFull(adID, views, 0, 0)
 	}
 }
 
@@ -723,7 +724,7 @@ func (s *Scraper) recheckOneAd(ctx context.Context, adID string) {
 		log.Warn().Err(err).Str("ad_id", adID).Msg("recheck upsert failed")
 		return
 	}
-	s.snapBuf.Record(adID, ad.Views, ad.PriceEUR)
+	s.snapBuf.RecordFull(adID, ad.Views, ad.Favorites, ad.PriceEUR)
 	s.cache.CacheAd(ctx, ad)
 	s.cache.PublishAdUpdate(ctx, ad)
 

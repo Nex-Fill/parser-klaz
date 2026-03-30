@@ -47,25 +47,31 @@ func (p *Postgres) UpsertAd(ctx context.Context, ad *kl.Ad) error {
 	_, err := p.pool.Exec(ctx, `
 		INSERT INTO ads (id, title, description, price, price_eur, contact_name,
 			category_id, location_id, ad_status, shipping_option, user_id,
-			user_since_date, poster_type, start_date, url, views, is_active,
+			user_since_date, poster_type, start_date, url, views, favorites, is_active,
 			is_deleted, task_id, first_seen_at, created_at, updated_at, last_checked_at)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24)
 		ON CONFLICT (id) DO UPDATE SET
 			title = EXCLUDED.title,
 			description = EXCLUDED.description,
 			price = EXCLUDED.price,
 			price_eur = EXCLUDED.price_eur,
 			contact_name = EXCLUDED.contact_name,
+			category_id = EXCLUDED.category_id,
+			location_id = EXCLUDED.location_id,
 			ad_status = EXCLUDED.ad_status,
 			shipping_option = EXCLUDED.shipping_option,
-			views = EXCLUDED.views,
+			poster_type = EXCLUDED.poster_type,
+			start_date = EXCLUDED.start_date,
+			url = EXCLUDED.url,
+			views = CASE WHEN EXCLUDED.views > 0 THEN EXCLUDED.views ELSE ads.views END,
+			favorites = CASE WHEN EXCLUDED.favorites > 0 THEN EXCLUDED.favorites ELSE ads.favorites END,
 			is_active = EXCLUDED.is_active,
 			is_deleted = EXCLUDED.is_deleted,
 			updated_at = EXCLUDED.updated_at,
 			last_checked_at = EXCLUDED.last_checked_at`,
 		ad.ID, ad.Title, ad.Description, ad.Price, ad.PriceEUR, ad.ContactName,
 		ad.CategoryID, ad.LocationID, ad.AdStatus, ad.ShippingOption, ad.UserID,
-		ad.UserSinceDate, ad.PosterType, ad.StartDate, ad.URL, ad.Views, ad.IsActive,
+		ad.UserSinceDate, ad.PosterType, ad.StartDate, ad.URL, ad.Views, ad.Favorites, ad.IsActive,
 		ad.IsDeleted, ad.TaskID, ad.FirstSeenAt, ad.CreatedAt, ad.UpdatedAt, time.Now(),
 	)
 	return err
@@ -83,7 +89,12 @@ func (p *Postgres) UpsertAdsBatch(ctx context.Context, ads []*kl.Ad) error {
 			ON CONFLICT (id) DO UPDATE SET
 				title = EXCLUDED.title, description = EXCLUDED.description,
 				price = EXCLUDED.price, price_eur = EXCLUDED.price_eur,
-				views = EXCLUDED.views, is_active = EXCLUDED.is_active,
+				contact_name = EXCLUDED.contact_name, ad_status = EXCLUDED.ad_status,
+				category_id = EXCLUDED.category_id, location_id = EXCLUDED.location_id,
+				poster_type = EXCLUDED.poster_type, start_date = EXCLUDED.start_date,
+				url = EXCLUDED.url,
+				views = CASE WHEN EXCLUDED.views > 0 THEN EXCLUDED.views ELSE ads.views END,
+				is_active = EXCLUDED.is_active,
 				updated_at = EXCLUDED.updated_at, last_checked_at = EXCLUDED.last_checked_at`,
 			ad.ID, ad.Title, ad.Description, ad.Price, ad.PriceEUR, ad.ContactName,
 			ad.CategoryID, ad.LocationID, ad.AdStatus, ad.ShippingOption, ad.UserID,
@@ -166,11 +177,11 @@ func (p *Postgres) BatchUpdateCounters(ctx context.Context, views map[string]int
 				favorites_delta_7d = $3 - COALESCE(ad_metrics.favorites_7d_ago, 0),
 				views_per_hour = CASE
 					WHEN EXTRACT(EPOCH FROM (NOW() - ad_metrics.first_seen_at)) > 7200
-					THEN GREATEST(CASE WHEN $2 > 0 THEN $2 ELSE ad_metrics.views_current END - COALESCE(ad_metrics.views_7d_ago, 0), 0)::double precision / GREATEST(EXTRACT(EPOCH FROM (NOW() - ad_metrics.first_seen_at)) / 3600.0, 1)
+					THEN GREATEST(CASE WHEN $2 > 0 THEN $2 ELSE ad_metrics.views_current END - COALESCE(ad_metrics.views_7d_ago, 0), 0)::double precision / LEAST(GREATEST(EXTRACT(EPOCH FROM (NOW() - ad_metrics.first_seen_at)) / 3600.0, 1), 168)
 					ELSE 0 END,
 				favorites_per_hour = CASE
 					WHEN EXTRACT(EPOCH FROM (NOW() - ad_metrics.first_seen_at)) > 7200
-					THEN GREATEST($3 - COALESCE(ad_metrics.favorites_7d_ago, 0), 0)::double precision / GREATEST(EXTRACT(EPOCH FROM (NOW() - ad_metrics.first_seen_at)) / 3600.0, 1)
+					THEN GREATEST($3 - COALESCE(ad_metrics.favorites_7d_ago, 0), 0)::double precision / LEAST(GREATEST(EXTRACT(EPOCH FROM (NOW() - ad_metrics.first_seen_at)) / 3600.0, 1), 168)
 					ELSE 0 END,
 				snapshot_count = ad_metrics.snapshot_count + 1,
 				last_snapshot_at = NOW(),

@@ -44,10 +44,6 @@ func NewSnapshotBuffer(db *Postgres, flushSize int, flushInterval time.Duration)
 	return sb
 }
 
-func (sb *SnapshotBuffer) Record(adID string, views int, price float64) {
-	sb.RecordFull(adID, views, 0, price)
-}
-
 func (sb *SnapshotBuffer) RecordFull(adID string, views, favorites int, price float64) {
 	sb.mu.Lock()
 	sb.buf = append(sb.buf, snapshot{adID, views, favorites, price, time.Now()})

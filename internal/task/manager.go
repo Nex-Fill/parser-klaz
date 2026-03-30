@@ -203,7 +203,7 @@ func (m *Manager) StartImageLoaderLoop(ctx context.Context) {
 			}
 		}
 	}()
-	log.Info().Msg("image loader loop started (continuous, 2000 ads/batch)")
+	log.Info().Msg("image loader loop started (continuous, 5000 ads/batch)")
 }
 
 func (m *Manager) StartMetricsRefreshLoop(ctx context.Context) {
