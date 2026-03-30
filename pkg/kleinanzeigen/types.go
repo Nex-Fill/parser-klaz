@@ -81,8 +81,9 @@ type SearchParams struct {
 	Size       int    `json:"size"`
 	MinPrice   *int   `json:"minPrice,omitempty"`
 	MaxPrice   *int   `json:"maxPrice,omitempty"`
-	PriceType  string `json:"priceType"`
-	ModAfter   string `json:"modAfter,omitempty"`
+	PriceType  string            `json:"priceType"`
+	ModAfter   string            `json:"modAfter,omitempty"`
+	Extra      map[string]string `json:"-"`
 }
 
 type SearchResult struct {

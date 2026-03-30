@@ -52,6 +52,9 @@ func BuildSearchURL(params SearchParams) string {
 	if params.ModAfter != "" {
 		q.Set("modAfter", params.ModAfter)
 	}
+	for k, v := range params.Extra {
+		q.Set(k, v)
+	}
 	return base + "?" + q.Encode()
 }
 

@@ -956,82 +956,152 @@ func (s *Scraper) DeepScanAll(ctx context.Context) int {
 		return 0
 	}
 
-	var leafCats []string
+	var leafCats []kl.CategoryNode
 	for _, c := range cats {
 		if !c.HasChildren {
-			leafCats = append(leafCats, c.ID)
+			leafCats = append(leafCats, c)
 		}
 	}
 
 	priceBuckets := []struct{ min, max int }{
-		{0, 5}, {5, 10}, {10, 20}, {20, 50},
-		{50, 100}, {100, 200}, {200, 500},
-		{500, 1000}, {1000, 2000}, {2000, 5000},
-		{5000, 10000}, {10000, 50000}, {50000, 0},
+		{0, 10}, {10, 50}, {50, 100}, {100, 500},
+		{500, 2000}, {2000, 10000}, {10000, 0},
 	}
 
-	log.Info().Int("categories", len(leafCats)).Int("price_buckets", len(priceBuckets)).Msg("deep scan: starting")
+	log.Info().Int("categories", len(leafCats)).Msg("deep scan: starting (price + attribute split)")
 	start := time.Now()
 	var totalAds int
 
-	for _, catID := range leafCats {
+	for _, cat := range leafCats {
 		select {
 		case <-ctx.Done():
 			return totalAds
 		default:
 		}
 
+		subAttrs := s.getSubcategoryAttributes(ctx, cat.ID)
+
+		attrCombos := []map[string]string{nil}
+		if len(subAttrs) > 0 {
+			attrCombos = nil
+			for _, sv := range subAttrs {
+				attrCombos = append(attrCombos, map[string]string{sv.name: sv.value})
+			}
+		}
+
 		for _, bucket := range priceBuckets {
-			for page := 0; page < 100; page++ {
-				params := kl.SearchParams{
-					CategoryID: catID,
-					Page:       page,
-					Size:       100,
-				}
-				if bucket.min > 0 {
-					params.MinPrice = &bucket.min
-				}
-				if bucket.max > 0 {
-					params.MaxPrice = &bucket.max
-				}
+			for _, attrs := range attrCombos {
+				found := s.deepScanChunk(ctx, cat.ID, bucket.min, bucket.max, attrs)
+				totalAds += found
+			}
+		}
 
-				result, err := s.searchAds(ctx, params)
-				if err != nil || len(result.Ads) == 0 {
-					break
-				}
+		log.Debug().Str("category", cat.Name).Int("total", totalAds).Msg("deep scan: category done")
+	}
 
-				var ads []*kl.Ad
-				for _, raw := range result.Ads {
-					if raw.Raw == nil {
-						continue
+	log.Info().Int("total_ads", totalAds).Dur("took", time.Since(start)).Msg("deep scan: complete")
+	return totalAds
+}
+
+type subAttr struct {
+	name  string
+	value string
+}
+
+func (s *Scraper) getSubcategoryAttributes(ctx context.Context, catID string) []subAttr {
+	url := fmt.Sprintf("https://api.kleinanzeigen.de/api/ads/metadata/%s.json", catID)
+	body, err := s.doRequest(ctx, url)
+	if err != nil {
+		return nil
+	}
+	var resp map[string]interface{}
+	if json.Unmarshal(body, &resp) != nil {
+		return nil
+	}
+
+	var result []subAttr
+	for _, v := range resp {
+		vm, ok := v.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		inner, ok := vm["value"].(map[string]interface{})
+		if !ok {
+			continue
+		}
+		attrs, ok := inner["attributes"].(map[string]interface{})
+		if !ok {
+			continue
+		}
+		for _, a := range attrs["attribute"].([]interface{}) {
+			attr, ok := a.(map[string]interface{})
+			if !ok {
+				continue
+			}
+			isSub, _ := attr["fake-sub-category"].(string)
+			if isSub != "true" {
+				continue
+			}
+			name, _ := attr["name"].(string)
+			svList, _ := attr["supported-value"].([]interface{})
+			for _, sv := range svList {
+				if svm, ok := sv.(map[string]interface{}); ok {
+					if v, ok := svm["value"].(string); ok {
+						result = append(result, subAttr{name: name, value: v})
 					}
-					ad, _ := kl.ParseAdFromSearchResult(raw.Raw)
-					if ad == nil || ad.ID == "" {
-						continue
-					}
-					if ad.CategoryID == "" {
-						ad.CategoryID = catID
-					}
-					ads = append(ads, ad)
-				}
-
-				if len(ads) > 0 {
-					s.db.UpsertAdsFromSearch(ctx, ads)
-					totalAds += len(ads)
-				}
-
-				if len(result.Ads) < 100 {
-					break
 				}
 			}
 		}
 	}
+	return result
+}
 
-	log.Info().
-		Int("total_ads", totalAds).
-		Dur("took", time.Since(start)).
-		Msg("deep scan: complete")
+func (s *Scraper) deepScanChunk(ctx context.Context, catID string, priceMin, priceMax int, attrs map[string]string) int {
+	var totalAds int
+	for page := 0; page < 100; page++ {
+		select {
+		case <-ctx.Done():
+			return totalAds
+		default:
+		}
 
+		params := kl.SearchParams{CategoryID: catID, Page: page, Size: 100, Extra: attrs}
+		if priceMin > 0 {
+			params.MinPrice = &priceMin
+		}
+		if priceMax > 0 {
+			params.MaxPrice = &priceMax
+		}
+
+		result, err := s.searchAds(ctx, params)
+		if err != nil || len(result.Ads) == 0 {
+			break
+		}
+
+		var ads []*kl.Ad
+		for _, raw := range result.Ads {
+			if raw.Raw == nil {
+				continue
+			}
+			ad, _ := kl.ParseAdFromSearchResult(raw.Raw)
+			if ad == nil || ad.ID == "" {
+				continue
+			}
+			if ad.CategoryID == "" {
+				ad.CategoryID = catID
+			}
+			ads = append(ads, ad)
+		}
+
+		if len(ads) > 0 {
+			s.db.UpsertAdsFromSearch(ctx, ads)
+			totalAds += len(ads)
+		}
+
+		if len(result.Ads) < 100 {
+			break
+		}
+	}
 	return totalAds
 }
 
