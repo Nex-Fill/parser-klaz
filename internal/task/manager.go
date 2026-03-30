@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/rs/zerolog/log"
@@ -22,8 +23,9 @@ type Manager struct {
 	cancels map[string]context.CancelFunc
 	mu      sync.RWMutex
 
-	recheckCancel context.CancelFunc
-	parseLock     sync.Mutex
+	recheckCancel    context.CancelFunc
+	parseLock        sync.Mutex
+	countersRunning  atomic.Bool
 }
 
 func (m *Manager) Scraper() *parser.Scraper { return m.scraper }
@@ -48,10 +50,12 @@ func (m *Manager) StartBatchCountersLoop(ctx context.Context) {
 
 	go func() {
 		time.Sleep(20 * time.Second)
+		m.countersRunning.Store(true)
 		log.Info().Msg("running initial batch counters update")
 		if err := m.scraper.BatchCountersUpdate(ctx); err != nil {
 			log.Error().Err(err).Msg("batch counters failed")
 		}
+		m.countersRunning.Store(false)
 
 		ticker := time.NewTicker(45 * time.Minute)
 		defer ticker.Stop()
@@ -61,10 +65,12 @@ func (m *Manager) StartBatchCountersLoop(ctx context.Context) {
 			case <-ctx.Done():
 				return
 			case <-ticker.C:
+				m.countersRunning.Store(true)
 				log.Info().Msg("batch counters cycle")
 				if err := m.scraper.BatchCountersUpdate(ctx); err != nil {
 					log.Error().Err(err).Msg("batch counters failed")
 				}
+				m.countersRunning.Store(false)
 			}
 		}
 	}()
@@ -192,6 +198,10 @@ func (m *Manager) StartImageLoaderLoop(ctx context.Context) {
 			case <-ctx.Done():
 				return
 			default:
+			}
+			if m.countersRunning.Load() {
+				time.Sleep(5 * time.Second)
+				continue
 			}
 			count, _ := m.scraper.LoadMissingImages(ctx, 5000)
 			if count == 0 {
