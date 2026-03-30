@@ -225,7 +225,7 @@ func (p *Postgres) CountExistingIDs(ctx context.Context, ids []string) (int, err
 }
 
 func (p *Postgres) GetAllActiveAdIDs(ctx context.Context) ([]string, error) {
-	rows, err := p.pool.Query(ctx, `SELECT id FROM ads WHERE is_active = true AND is_deleted = false ORDER BY id`)
+	rows, err := p.pool.Query(ctx, `SELECT id FROM ads WHERE is_active = true AND is_deleted = false AND (last_checked_at < NOW() - INTERVAL '40 minutes' OR last_checked_at IS NULL) ORDER BY last_checked_at ASC NULLS FIRST`)
 	if err != nil {
 		return nil, err
 	}

@@ -34,6 +34,8 @@ type Scraper struct {
 	pool       *ants.Pool
 	filter     *Filter
 	snapBuf    *storage.SnapshotBuffer
+	clientPool map[string]*http.Client
+	clientMu   sync.Mutex
 }
 
 type MediaPipeline interface {
@@ -51,7 +53,7 @@ func NewScraper(cfg config.ParserConfig, lc *config.LiveConfig, proxyPool *proxy
 
 	return &Scraper{
 		cfg: cfg, liveConfig: lc, proxyPool: proxyPool, db: db, cache: cache,
-		media: media, pool: pool, filter: NewFilter(), snapBuf: snapBuf,
+		media: media, pool: pool, filter: NewFilter(), snapBuf: snapBuf, clientPool: make(map[string]*http.Client),
 	}, nil
 }
 
@@ -446,15 +448,29 @@ func (s *Scraper) doRequest(ctx context.Context, targetURL string) ([]byte, erro
 }
 
 func (s *Scraper) buildClient(proxyURL string) *http.Client {
+	if proxyURL == "" {
+		return &http.Client{Timeout: s.cfg.RequestTimeout}
+	}
+	s.clientMu.Lock()
+	c, ok := s.clientPool[proxyURL]
+	s.clientMu.Unlock()
+	if ok {
+		return c
+	}
+
 	transport := &http.Transport{
-		MaxIdleConns: 100, MaxIdleConnsPerHost: 10, IdleConnTimeout: 30 * time.Second,
+		MaxIdleConns: 100, MaxIdleConnsPerHost: 20, IdleConnTimeout: 90 * time.Second,
+		DisableKeepAlives: false,
 	}
-	if proxyURL != "" {
-		if u, err := url.Parse(proxyURL); err == nil {
-			transport.Proxy = http.ProxyURL(u)
-		}
+	if u, err := url.Parse(proxyURL); err == nil {
+		transport.Proxy = http.ProxyURL(u)
 	}
-	return &http.Client{Transport: transport, Timeout: s.cfg.RequestTimeout}
+	c = &http.Client{Transport: transport, Timeout: s.cfg.RequestTimeout}
+
+	s.clientMu.Lock()
+	s.clientPool[proxyURL] = c
+	s.clientMu.Unlock()
+	return c
 }
 
 func (s *Scraper) updateTask(ctx context.Context, task *kl.ParseTask) {
