@@ -334,11 +334,29 @@ func (p *Postgres) SearchAdsWithMetrics(ctx context.Context, req kl.AdSearchRequ
 	if req.FavoritesDelta1hMin != nil {
 		add("COALESCE(m.favorites_delta_1h, 0) >= $%d", *req.FavoritesDelta1hMin)
 	}
+	if req.FavoritesDelta1hMax != nil {
+		add("COALESCE(m.favorites_delta_1h, 0) <= $%d", *req.FavoritesDelta1hMax)
+	}
 	if req.FavoritesDelta24hMin != nil {
 		add("COALESCE(m.favorites_delta_24h, 0) >= $%d", *req.FavoritesDelta24hMin)
 	}
+	if req.FavoritesDelta24hMax != nil {
+		add("COALESCE(m.favorites_delta_24h, 0) <= $%d", *req.FavoritesDelta24hMax)
+	}
 	if req.FavoritesPerHourMin != nil {
 		add("COALESCE(m.favorites_per_hour, 0) >= $%d", *req.FavoritesPerHourMin)
+	}
+	if req.AdType != "" {
+		add("a.ad_type = $%d", req.AdType)
+	}
+	if req.PriceType != "" {
+		add("a.price_type = $%d", req.PriceType)
+	}
+	if req.SellerAdsMin != nil {
+		add("(SELECT COUNT(*) FROM ads a2 WHERE a2.user_id = a.user_id AND a2.is_active = true) >= $%d", *req.SellerAdsMin)
+	}
+	if req.SellerAdsMax != nil {
+		add("(SELECT COUNT(*) FROM ads a2 WHERE a2.user_id = a.user_id AND a2.is_active = true) <= $%d", *req.SellerAdsMax)
 	}
 	if req.PriceDropped != nil && *req.PriceDropped {
 		where = append(where, "m.price_dropped = true")
@@ -405,7 +423,7 @@ func (p *Postgres) SearchAdsWithMetrics(ctx context.Context, req kl.AdSearchRequ
 			COALESCE(a.category_id, ''), COALESCE(a.ad_status, 'ACTIVE'), COALESCE(a.poster_type, ''), COALESCE(a.start_date, ''),
 			COALESCE(a.url, ''), COALESCE(a.views, 0), COALESCE(a.favorites, 0), a.is_active, a.is_deleted,
 			COALESCE(a.first_seen_at, a.created_at), a.created_at,
-			COALESCE(a.location_id, ''),
+			COALESCE(a.location_id, ''), COALESCE(a.user_id, ''),
 			COALESCE(a.ad_type, ''), COALESCE(a.price_type, ''),
 			COALESCE(a.buy_now_selected, false), COALESCE(a.buy_now_price, 0), COALESCE(a.user_rating, 0),
 			COALESCE(m.views_current, a.views, 0),
@@ -453,7 +471,7 @@ func (p *Postgres) SearchAdsWithMetrics(ctx context.Context, req kl.AdSearchRequ
 			&aw.ID, &aw.Title, &aw.Description, &aw.PriceEUR, &aw.ContactName,
 			&aw.CategoryID, &aw.AdStatus, &aw.PosterType, &aw.StartDate,
 			&aw.URL, &aw.Views, &aw.Favorites, &aw.IsActive, &aw.IsDeleted, &aw.FirstSeenAt, &aw.CreatedAt,
-			&aw.LocationID,
+			&aw.LocationID, &aw.UserID,
 			&aw.AdType, &aw.PriceType, &aw.BuyNowSelected, &aw.BuyNowPrice, &aw.UserRating,
 			&m.ViewsCurrent, &m.FavoritesCurrent, &m.PriceCurrent,
 			&m.ViewsDelta1h, &m.ViewsDelta24h, &m.ViewsDelta7d, &m.ViewsPerHour,

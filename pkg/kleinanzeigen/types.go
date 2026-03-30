@@ -246,8 +246,16 @@ type AdSearchRequest struct {
 	ViewsPerHourMin  *float64 `json:"views_per_hour_min,omitempty"`
 
 	FavoritesDelta1hMin  *int     `json:"favorites_delta_1h_min,omitempty"`
+	FavoritesDelta1hMax  *int     `json:"favorites_delta_1h_max,omitempty"`
 	FavoritesDelta24hMin *int     `json:"favorites_delta_24h_min,omitempty"`
+	FavoritesDelta24hMax *int     `json:"favorites_delta_24h_max,omitempty"`
 	FavoritesPerHourMin  *float64 `json:"favorites_per_hour_min,omitempty"`
+
+	AdType    string `json:"ad_type,omitempty"`
+	PriceType string `json:"price_type,omitempty"`
+
+	SellerAdsMin *int `json:"seller_ads_min,omitempty"`
+	SellerAdsMax *int `json:"seller_ads_max,omitempty"`
 
 	PriceDropped     *bool    `json:"price_dropped,omitempty"`
 
