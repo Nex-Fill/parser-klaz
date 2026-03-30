@@ -162,7 +162,7 @@ func (p *Postgres) BatchUpdateCounters(ctx context.Context, views map[string]int
 		if v > 0 {
 			batch.Queue(`UPDATE ads SET views = $2, favorites = $3, last_checked_at = NOW(), updated_at = NOW() WHERE id = $1`, id, v, f)
 		} else {
-			batch.Queue(`UPDATE ads SET favorites = $3, last_checked_at = NOW(), updated_at = NOW() WHERE id = $1`, id, v, f)
+			batch.Queue(`UPDATE ads SET favorites = $2, last_checked_at = NOW(), updated_at = NOW() WHERE id = $1`, id, f)
 		}
 
 		if v > 0 {
@@ -194,14 +194,8 @@ func (p *Postgres) BatchUpdateCounters(ctx context.Context, views map[string]int
 					snapshot_count = ad_metrics.snapshot_count + 1,
 					last_snapshot_at = NOW(),
 					updated_at = NOW()`, id, v, f)
-		} else {
-			batch.Queue(`UPDATE ad_metrics SET
-				favorites_current = $2,
-				favorites_delta_1h = $2 - COALESCE(favorites_1h_ago, 0),
-				favorites_delta_24h = $2 - COALESCE(favorites_24h_ago, 0),
-				favorites_delta_7d = $2 - COALESCE(favorites_7d_ago, 0),
-				updated_at = NOW()
-				WHERE ad_id = $1`, id, f)
+		} else if f >= 0 {
+			batch.Queue(`UPDATE ad_metrics SET favorites_current = $2, updated_at = NOW() WHERE ad_id = $1`, id, f)
 		}
 
 		seen[id] = true
