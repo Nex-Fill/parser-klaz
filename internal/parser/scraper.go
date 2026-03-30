@@ -917,21 +917,23 @@ func (s *Scraper) SyncCategoryAttributes(ctx context.Context) error {
 				}
 				name, _ := attr["name"].(string)
 				label, _ := attr["localized-label"].(string)
-				values, _ := attr["value"].([]interface{})
+				isSub, _ := attr["fake-sub-category"].(string)
 
+				supportedValues, _ := attr["supported-value"].([]interface{})
 				var valList []map[string]string
-				if values != nil {
-					for _, vv := range values {
-						if vm, ok := vv.(map[string]interface{}); ok {
-							entry := map[string]string{}
-							if l, ok := vm["localized-label"].(string); ok {
-								entry["label"] = l
-							}
-							if v, ok := vm["value"].(string); ok {
-								entry["value"] = v
-							}
-							valList = append(valList, entry)
+				for _, vv := range supportedValues {
+					if vm, ok := vv.(map[string]interface{}); ok {
+						entry := map[string]string{}
+						if l, ok := vm["localized-label"].(string); ok {
+							entry["label"] = l
 						}
+						if v, ok := vm["value"].(string); ok {
+							entry["value"] = v
+						}
+						if isSub == "true" {
+							entry["is_subcategory"] = "true"
+						}
+						valList = append(valList, entry)
 					}
 				}
 
