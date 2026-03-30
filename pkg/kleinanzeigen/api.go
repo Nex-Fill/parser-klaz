@@ -207,7 +207,9 @@ func ParseAdResponse(body []byte) (*Ad, []string, error) {
 	if v := getNestedString(value, "ad-status", "value"); v != "" {
 		ad.AdStatus = v
 	}
-	if v, ok := value["ad-type"].(string); ok && v != "" {
+	if v := getNestedString(value, "ad-type", "value"); v != "" {
+		ad.AdType = v
+	} else if v, ok := value["ad-type"].(string); ok && v != "" {
 		ad.AdType = v
 	}
 	if v := getNestedString(value, "price", "price-type", "value"); v != "" {
@@ -250,7 +252,11 @@ func ParseAdResponse(body []byte) (*Ad, []string, error) {
 		if avg, ok := rating["averageRating"].(map[string]interface{}); ok {
 			if v, ok := avg["value"].(float64); ok {
 				ad.UserRating = v
+			} else if vs, ok := avg["value"].(string); ok {
+				fmt.Sscanf(vs, "%f", &ad.UserRating)
 			}
+		} else if v, ok := rating["averageRating"].(float64); ok {
+			ad.UserRating = v
 		}
 	}
 
