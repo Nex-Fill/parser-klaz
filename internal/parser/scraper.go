@@ -807,6 +807,17 @@ func normalizeWS(s string) string {
 	return string(buf)
 }
 
+func (s *Scraper) FetchCategoryMetadata(ctx context.Context, categoryID string) (map[string]interface{}, error) {
+	url := fmt.Sprintf("https://api.kleinanzeigen.de/api/ads/metadata/%s.json", categoryID)
+	body, err := s.doRequest(ctx, url)
+	if err != nil {
+		return nil, err
+	}
+	var result map[string]interface{}
+	json.Unmarshal(body, &result)
+	return result, nil
+}
+
 // ==================== IMAGE LOADER ====================
 
 func (s *Scraper) LoadMissingImages(ctx context.Context, batchSize int) (int, error) {

@@ -123,6 +123,7 @@ func (s *Server) Router() http.Handler {
 
 			r.Get("/dashboard", s.dashboard)
 			r.Get("/debug/raw/{adID}", s.debugRawFetch)
+			r.Get("/debug/category-meta/{catID}", s.debugCategoryMeta)
 			r.Get("/debug/batch-counters", s.debugBatchCounters)
 
 			r.Route("/proxy", func(r chi.Router) {
@@ -752,6 +753,16 @@ func (s *Server) triggerDeepScan(w http.ResponseWriter, r *http.Request) {
 		s.taskMgr.Scraper().DeepScanAll(ctx)
 	}()
 	respond(w, 200, map[string]interface{}{"Status": true, "message": "deep scan started in background"})
+}
+
+func (s *Server) debugCategoryMeta(w http.ResponseWriter, r *http.Request) {
+	catID := chi.URLParam(r, "catID")
+	data, err := s.taskMgr.Scraper().FetchCategoryMetadata(r.Context(), catID)
+	if err != nil {
+		respondError(w, 500, err.Error())
+		return
+	}
+	respond(w, 200, data)
 }
 
 func (s *Server) debugRawFetch(w http.ResponseWriter, r *http.Request) {
