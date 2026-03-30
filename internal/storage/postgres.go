@@ -249,6 +249,18 @@ func (p *Postgres) GetAllActiveAdIDs(ctx context.Context) ([]string, error) {
 	return ids, nil
 }
 
+func (p *Postgres) RefreshSellerAdCounts(ctx context.Context) {
+	_, err := p.pool.Exec(ctx, `
+		UPDATE ads SET seller_ad_count = sub.cnt
+		FROM (SELECT user_id, COUNT(*) as cnt FROM ads WHERE is_active = true AND user_id != '' GROUP BY user_id) sub
+		WHERE ads.user_id = sub.user_id AND ads.is_active = true AND ads.user_id != ''`)
+	if err != nil {
+		log.Error().Err(err).Msg("refresh seller ad counts failed")
+	} else {
+		log.Info().Msg("seller ad counts refreshed")
+	}
+}
+
 func (p *Postgres) SetStatusChangedAt(ctx context.Context, adID string, at time.Time) {
 	p.pool.Exec(ctx, `UPDATE ads SET status_changed_at = $2 WHERE id = $1`, adID, at)
 }

@@ -353,10 +353,10 @@ func (p *Postgres) SearchAdsWithMetrics(ctx context.Context, req kl.AdSearchRequ
 		add("a.price_type = $%d", req.PriceType)
 	}
 	if req.SellerAdsMin != nil {
-		add("(SELECT COUNT(*) FROM ads a2 WHERE a2.user_id = a.user_id AND a2.is_active = true) >= $%d", *req.SellerAdsMin)
+		add("a.seller_ad_count >= $%d", *req.SellerAdsMin)
 	}
 	if req.SellerAdsMax != nil {
-		add("(SELECT COUNT(*) FROM ads a2 WHERE a2.user_id = a.user_id AND a2.is_active = true) <= $%d", *req.SellerAdsMax)
+		add("a.seller_ad_count <= $%d", *req.SellerAdsMax)
 	}
 	if req.PriceDropped != nil && *req.PriceDropped {
 		where = append(where, "m.price_dropped = true")

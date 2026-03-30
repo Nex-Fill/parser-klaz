@@ -217,7 +217,19 @@ func (m *Manager) StartImageLoaderLoop(ctx context.Context) {
 }
 
 func (m *Manager) StartMetricsRefreshLoop(ctx context.Context) {
-	log.Info().Msg("metrics: computed inline in batch counters (no separate refresh needed)")
+	go func() {
+		ticker := time.NewTicker(30 * time.Minute)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				m.db.RefreshSellerAdCounts(ctx)
+			}
+		}
+	}()
+	log.Info().Msg("seller ad count refresh started (every 30 min)")
 }
 
 func (m *Manager) StartCategorySyncLoop(ctx context.Context) {
