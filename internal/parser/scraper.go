@@ -860,6 +860,92 @@ func (s *Scraper) LoadMissingImages(ctx context.Context, batchSize int) (int, er
 	return len(ids), nil
 }
 
+// ==================== SYNC CATEGORY ATTRIBUTES ====================
+
+func (s *Scraper) SyncCategoryAttributes(ctx context.Context) error {
+	cats, _ := s.db.GetAllCategories(ctx)
+	if len(cats) == 0 {
+		return nil
+	}
+
+	log.Info().Int("categories", len(cats)).Msg("syncing category attributes")
+	var synced int
+
+	for _, cat := range cats {
+		if cat.HasChildren {
+			continue
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+		}
+
+		url := fmt.Sprintf("https://api.kleinanzeigen.de/api/ads/metadata/%s.json", cat.ID)
+		body, err := s.doRequest(ctx, url)
+		if err != nil {
+			continue
+		}
+
+		var resp map[string]interface{}
+		if json.Unmarshal(body, &resp) != nil {
+			continue
+		}
+
+		for _, v := range resp {
+			vm, ok := v.(map[string]interface{})
+			if !ok {
+				continue
+			}
+			inner, ok := vm["value"].(map[string]interface{})
+			if !ok {
+				continue
+			}
+			attrs, ok := inner["attributes"].(map[string]interface{})
+			if !ok {
+				continue
+			}
+			attrList, ok := attrs["attribute"].([]interface{})
+			if !ok {
+				continue
+			}
+
+			for _, a := range attrList {
+				attr, ok := a.(map[string]interface{})
+				if !ok {
+					continue
+				}
+				name, _ := attr["name"].(string)
+				label, _ := attr["localized-label"].(string)
+				values, _ := attr["value"].([]interface{})
+
+				var valList []map[string]string
+				if values != nil {
+					for _, vv := range values {
+						if vm, ok := vv.(map[string]interface{}); ok {
+							entry := map[string]string{}
+							if l, ok := vm["localized-label"].(string); ok {
+								entry["label"] = l
+							}
+							if v, ok := vm["value"].(string); ok {
+								entry["value"] = v
+							}
+							valList = append(valList, entry)
+						}
+					}
+				}
+
+				valJSON, _ := json.Marshal(valList)
+				s.db.UpsertCategoryAttribute(ctx, cat.ID, name, label, valJSON)
+				synced++
+			}
+		}
+	}
+
+	log.Info().Int("attributes", synced).Msg("category attributes synced")
+	return nil
+}
+
 // ==================== DEEP SCAN WITH PRICE SPLITTING ====================
 
 func (s *Scraper) DeepScanAll(ctx context.Context) int {

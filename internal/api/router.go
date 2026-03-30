@@ -73,6 +73,7 @@ func (s *Server) Router() http.Handler {
 			r.Get("/", s.getCategories)
 			r.Get("/tree", s.getCategoryTree)
 			r.Get("/search", s.searchCategories)
+			r.Get("/{catID}/attributes", s.getCategoryAttributes)
 			r.Post("/sync", s.syncCategories)
 		})
 
@@ -753,6 +754,16 @@ func (s *Server) triggerDeepScan(w http.ResponseWriter, r *http.Request) {
 		s.taskMgr.Scraper().DeepScanAll(ctx)
 	}()
 	respond(w, 200, map[string]interface{}{"Status": true, "message": "deep scan started in background"})
+}
+
+func (s *Server) getCategoryAttributes(w http.ResponseWriter, r *http.Request) {
+	catID := chi.URLParam(r, "catID")
+	attrs, err := s.db.GetCategoryAttributes(r.Context(), catID)
+	if err != nil {
+		respondError(w, 500, err.Error())
+		return
+	}
+	respond(w, 200, map[string]interface{}{"data": attrs, "category_id": catID})
 }
 
 func (s *Server) debugCategoryMeta(w http.ResponseWriter, r *http.Request) {

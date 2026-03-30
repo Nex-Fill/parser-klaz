@@ -242,6 +242,10 @@ func (m *Manager) StartCategorySyncLoop(ctx context.Context) {
 		if err := m.scraper.SyncCategories(ctx); err != nil {
 			log.Warn().Err(err).Msg("initial category sync failed")
 		}
+		go func() {
+			time.Sleep(2 * time.Minute)
+			m.scraper.SyncCategoryAttributes(ctx)
+		}()
 		ticker := time.NewTicker(24 * time.Hour)
 		defer ticker.Stop()
 		for {
@@ -250,6 +254,7 @@ func (m *Manager) StartCategorySyncLoop(ctx context.Context) {
 				return
 			case <-ticker.C:
 				m.scraper.SyncCategories(ctx)
+				m.scraper.SyncCategoryAttributes(ctx)
 			}
 		}
 	}()

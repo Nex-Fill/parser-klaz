@@ -289,6 +289,32 @@ func (p *Postgres) RefreshSellerAdCounts(ctx context.Context) {
 	}
 }
 
+func (p *Postgres) UpsertCategoryAttribute(ctx context.Context, catID, name, label string, valuesJSON []byte) {
+	p.pool.Exec(ctx, `INSERT INTO category_attributes (category_id, attr_name, attr_label, attr_values)
+		VALUES ($1, $2, $3, $4)
+		ON CONFLICT (category_id, attr_name) DO UPDATE SET attr_label = $3, attr_values = $4`,
+		catID, name, label, valuesJSON)
+}
+
+func (p *Postgres) GetCategoryAttributes(ctx context.Context, catID string) ([]map[string]interface{}, error) {
+	rows, err := p.pool.Query(ctx, `SELECT attr_name, attr_label, attr_values FROM category_attributes WHERE category_id = $1 ORDER BY attr_name`, catID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var result []map[string]interface{}
+	for rows.Next() {
+		var name, label string
+		var values []byte
+		if rows.Scan(&name, &label, &values) == nil {
+			var vals interface{}
+			json.Unmarshal(values, &vals)
+			result = append(result, map[string]interface{}{"name": name, "label": label, "values": vals})
+		}
+	}
+	return result, nil
+}
+
 func (p *Postgres) SetStatusChangedAt(ctx context.Context, adID string, at time.Time) {
 	p.pool.Exec(ctx, `UPDATE ads SET status_changed_at = $2 WHERE id = $1`, adID, at)
 }
