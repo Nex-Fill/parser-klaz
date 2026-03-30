@@ -166,7 +166,7 @@ func (p *Postgres) BatchUpdateCounters(ctx context.Context, views map[string]int
 		}
 
 		batch.Queue(`INSERT INTO ad_metrics (ad_id, views_current, favorites_current, first_seen_at, last_snapshot_at, updated_at)
-			VALUES ($1, $2, $3, NOW(), NOW(), NOW())
+			VALUES ($1::text, $2::integer, $3::integer, NOW(), NOW(), NOW())
 			ON CONFLICT (ad_id) DO UPDATE SET
 				views_1h_ago = CASE WHEN ad_metrics.updated_at <= NOW() - INTERVAL '50 minutes' THEN ad_metrics.views_current ELSE ad_metrics.views_1h_ago END,
 				views_24h_ago = CASE WHEN ad_metrics.updated_at <= NOW() - INTERVAL '23 hours' THEN ad_metrics.views_current ELSE ad_metrics.views_24h_ago END,
@@ -174,21 +174,21 @@ func (p *Postgres) BatchUpdateCounters(ctx context.Context, views map[string]int
 				favorites_1h_ago = CASE WHEN ad_metrics.updated_at <= NOW() - INTERVAL '50 minutes' THEN ad_metrics.favorites_current ELSE ad_metrics.favorites_1h_ago END,
 				favorites_24h_ago = CASE WHEN ad_metrics.updated_at <= NOW() - INTERVAL '23 hours' THEN ad_metrics.favorites_current ELSE ad_metrics.favorites_24h_ago END,
 				favorites_7d_ago = CASE WHEN ad_metrics.updated_at <= NOW() - INTERVAL '6 days' THEN ad_metrics.favorites_current ELSE ad_metrics.favorites_7d_ago END,
-				views_current = CASE WHEN $2 > 0 THEN $2 ELSE ad_metrics.views_current END,
-				favorites_current = $3,
-				views_delta_1h = GREATEST(CASE WHEN $2 > 0 THEN $2 ELSE ad_metrics.views_current END - COALESCE(ad_metrics.views_1h_ago, 0), 0),
-				views_delta_24h = GREATEST(CASE WHEN $2 > 0 THEN $2 ELSE ad_metrics.views_current END - COALESCE(ad_metrics.views_24h_ago, 0), 0),
-				views_delta_7d = GREATEST(CASE WHEN $2 > 0 THEN $2 ELSE ad_metrics.views_current END - COALESCE(ad_metrics.views_7d_ago, 0), 0),
-				favorites_delta_1h = $3 - COALESCE(ad_metrics.favorites_1h_ago, 0),
-				favorites_delta_24h = $3 - COALESCE(ad_metrics.favorites_24h_ago, 0),
-				favorites_delta_7d = $3 - COALESCE(ad_metrics.favorites_7d_ago, 0),
+				views_current = CASE WHEN $2::integer > 0 THEN $2::integer ELSE ad_metrics.views_current END,
+				favorites_current = $3::integer,
+				views_delta_1h = GREATEST(CASE WHEN $2::integer > 0 THEN $2::integer ELSE ad_metrics.views_current END - COALESCE(ad_metrics.views_1h_ago, 0), 0),
+				views_delta_24h = GREATEST(CASE WHEN $2::integer > 0 THEN $2::integer ELSE ad_metrics.views_current END - COALESCE(ad_metrics.views_24h_ago, 0), 0),
+				views_delta_7d = GREATEST(CASE WHEN $2::integer > 0 THEN $2::integer ELSE ad_metrics.views_current END - COALESCE(ad_metrics.views_7d_ago, 0), 0),
+				favorites_delta_1h = $3::integer - COALESCE(ad_metrics.favorites_1h_ago, 0),
+				favorites_delta_24h = $3::integer - COALESCE(ad_metrics.favorites_24h_ago, 0),
+				favorites_delta_7d = $3::integer - COALESCE(ad_metrics.favorites_7d_ago, 0),
 				views_per_hour = CASE
 					WHEN EXTRACT(EPOCH FROM (NOW() - ad_metrics.first_seen_at)) > 7200
-					THEN GREATEST(CASE WHEN $2 > 0 THEN $2 ELSE ad_metrics.views_current END - COALESCE(ad_metrics.views_7d_ago, 0), 0)::double precision / LEAST(GREATEST(EXTRACT(EPOCH FROM (NOW() - ad_metrics.first_seen_at)) / 3600.0, 1), 168)
+					THEN GREATEST(CASE WHEN $2::integer > 0 THEN $2::integer ELSE ad_metrics.views_current END - COALESCE(ad_metrics.views_7d_ago, 0), 0)::double precision / LEAST(GREATEST(EXTRACT(EPOCH FROM (NOW() - ad_metrics.first_seen_at)) / 3600.0, 1), 168)
 					ELSE 0 END,
 				favorites_per_hour = CASE
 					WHEN EXTRACT(EPOCH FROM (NOW() - ad_metrics.first_seen_at)) > 7200
-					THEN GREATEST($3 - COALESCE(ad_metrics.favorites_7d_ago, 0), 0)::double precision / LEAST(GREATEST(EXTRACT(EPOCH FROM (NOW() - ad_metrics.first_seen_at)) / 3600.0, 1), 168)
+					THEN GREATEST($3::integer - COALESCE(ad_metrics.favorites_7d_ago, 0), 0)::double precision / LEAST(GREATEST(EXTRACT(EPOCH FROM (NOW() - ad_metrics.first_seen_at)) / 3600.0, 1), 168)
 					ELSE 0 END,
 				snapshot_count = ad_metrics.snapshot_count + 1,
 				last_snapshot_at = NOW(),
