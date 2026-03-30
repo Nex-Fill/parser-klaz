@@ -901,9 +901,17 @@ func (s *Scraper) DeepScanAll(ctx context.Context) int {
 
 // ==================== NEW ADS WATCHER (global feed) ====================
 
-func (s *Scraper) ScanNewAds(ctx context.Context, pages int) int {
+func (s *Scraper) ScanNewAds(ctx context.Context) int {
 	var totalNew int
-	for page := 0; page < pages; page++ {
+	const maxPages = 100
+
+	for page := 0; page < maxPages; page++ {
+		select {
+		case <-ctx.Done():
+			return totalNew
+		default:
+		}
+
 		params := kl.SearchParams{
 			Page: page, Size: 100,
 		}
@@ -912,6 +920,7 @@ func (s *Scraper) ScanNewAds(ctx context.Context, pages int) int {
 			break
 		}
 
+		var ids []string
 		var ads []*kl.Ad
 		for _, raw := range result.Ads {
 			if raw.Raw == nil {
@@ -921,12 +930,24 @@ func (s *Scraper) ScanNewAds(ctx context.Context, pages int) int {
 			if ad == nil || ad.ID == "" {
 				continue
 			}
+			ids = append(ids, ad.ID)
 			ads = append(ads, ad)
 		}
 
+		existing, _ := s.db.CountExistingIDs(ctx, ids)
+		newOnPage := len(ids) - existing
+
 		if len(ads) > 0 {
 			s.db.UpsertAdsFromSearch(ctx, ads)
-			totalNew += len(ads)
+			totalNew += newOnPage
+		}
+
+		if len(ids) > 0 && float64(existing)/float64(len(ids)) > 0.9 {
+			break
+		}
+
+		if len(result.Ads) < 100 {
+			break
 		}
 	}
 	return totalNew

@@ -162,6 +162,12 @@ func (p *Postgres) BatchUpdateCounters(ctx context.Context, views map[string]int
 	return nil
 }
 
+func (p *Postgres) CountExistingIDs(ctx context.Context, ids []string) (int, error) {
+	var count int
+	err := p.pool.QueryRow(ctx, `SELECT COUNT(*) FROM unnest($1::text[]) AS id WHERE EXISTS (SELECT 1 FROM ads WHERE ads.id = id)`, ids).Scan(&count)
+	return count, err
+}
+
 func (p *Postgres) GetAllActiveAdIDs(ctx context.Context) ([]string, error) {
 	rows, err := p.pool.Query(ctx, `SELECT id FROM ads WHERE is_active = true AND is_deleted = false ORDER BY id`)
 	if err != nil {

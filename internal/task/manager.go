@@ -168,7 +168,7 @@ func (m *Manager) StartNewAdsWatcher(ctx context.Context) {
 			}
 
 			start := time.Now()
-			count := m.scraper.ScanNewAds(ctx, 5)
+			count := m.scraper.ScanNewAds(ctx)
 
 			if count > 0 {
 				log.Info().Int("new_ads", count).Dur("took", time.Since(start)).Msg("new ads watcher: found")
