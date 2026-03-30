@@ -739,8 +739,22 @@ func (s *Scraper) trackChanges(ctx context.Context, old, new *kl.Ad) {
 	if old.Price != new.Price && old.Price > 0 && new.Price > 0 {
 		s.db.RecordHistory(ctx, old.ID, "price", fmt.Sprintf("%d", old.Price), fmt.Sprintf("%d", new.Price))
 	}
-	if old.AdStatus != new.AdStatus {
+	if old.AdStatus != new.AdStatus && new.AdStatus != "" {
 		s.db.RecordHistory(ctx, old.ID, "ad_status", old.AdStatus, new.AdStatus)
+		now := time.Now()
+		s.db.SetStatusChangedAt(ctx, old.ID, now)
+
+		switch new.AdStatus {
+		case "ACTIVE":
+			new.IsActive = true
+			new.IsDeleted = false
+		case "PAUSED", "RESERVED":
+			new.IsActive = false
+		case "SOLD", "CLOSED", "DELETED":
+			new.IsActive = false
+			new.IsDeleted = true
+			new.DeletedAt = &now
+		}
 	}
 	if old.Title != new.Title && old.Title != "" && new.Title != "" {
 		s.db.RecordHistory(ctx, old.ID, "title", old.Title, new.Title)
@@ -750,6 +764,12 @@ func (s *Scraper) trackChanges(ctx context.Context, old, new *kl.Ad) {
 	}
 	if old.PosterType != new.PosterType && old.PosterType != "" && new.PosterType != "" {
 		s.db.RecordHistory(ctx, old.ID, "poster_type", old.PosterType, new.PosterType)
+	}
+	if old.PriceType != new.PriceType && new.PriceType != "" {
+		s.db.RecordHistory(ctx, old.ID, "price_type", old.PriceType, new.PriceType)
+	}
+	if old.BuyNowSelected != new.BuyNowSelected {
+		s.db.RecordHistory(ctx, old.ID, "buy_now_selected", fmt.Sprintf("%v", old.BuyNowSelected), fmt.Sprintf("%v", new.BuyNowSelected))
 	}
 }
 

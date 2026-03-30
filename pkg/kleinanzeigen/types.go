@@ -22,7 +22,12 @@ type Ad struct {
 	URL               string     `json:"url" db:"url"`
 	Views             int        `json:"views" db:"views"`
 	Favorites         int        `json:"favorites" db:"favorites"`
+	AdType            string     `json:"ad_type" db:"ad_type"`
+	PriceType         string     `json:"price_type" db:"price_type"`
 	BuyNowEnabled     bool       `json:"buy_now_enabled" db:"buy_now_enabled"`
+	BuyNowSelected    bool       `json:"buy_now_selected" db:"buy_now_selected"`
+	BuyNowPrice       float64    `json:"buy_now_price" db:"buy_now_price"`
+	UserRating        float64    `json:"user_rating" db:"user_rating"`
 	IsActive       bool       `json:"is_active" db:"is_active"`
 	IsDeleted      bool       `json:"is_deleted" db:"is_deleted"`
 	DeletedAt      *time.Time `json:"deleted_at,omitempty" db:"deleted_at"`

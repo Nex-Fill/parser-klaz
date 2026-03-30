@@ -207,6 +207,12 @@ func ParseAdResponse(body []byte) (*Ad, []string, error) {
 	if v := getNestedString(value, "ad-status", "value"); v != "" {
 		ad.AdStatus = v
 	}
+	if v, ok := value["ad-type"].(string); ok && v != "" {
+		ad.AdType = v
+	}
+	if v := getNestedString(value, "price", "price-type", "value"); v != "" {
+		ad.PriceType = v
+	}
 	if v := getNestedString(value, "user-id", "value"); v != "" {
 		ad.UserID = v
 	}
@@ -228,6 +234,23 @@ func ParseAdResponse(body []byte) (*Ad, []string, error) {
 	if buyNow, ok := value["buy-now"].(map[string]interface{}); ok {
 		if enabled, ok := buyNow["buy-now-enabled"].(string); ok && enabled == "true" {
 			ad.BuyNowEnabled = true
+		}
+		if selected, ok := buyNow["selected"].(string); ok && selected == "true" {
+			ad.BuyNowSelected = true
+		}
+		if price, ok := buyNow["price"].(map[string]interface{}); ok {
+			if amt, ok := price["amount"].(map[string]interface{}); ok {
+				if v, ok := amt["value"].(float64); ok {
+					ad.BuyNowPrice = v
+				}
+			}
+		}
+	}
+	if rating, ok := value["user-rating"].(map[string]interface{}); ok {
+		if avg, ok := rating["averageRating"].(map[string]interface{}); ok {
+			if v, ok := avg["value"].(float64); ok {
+				ad.UserRating = v
+			}
 		}
 	}
 
@@ -362,6 +385,12 @@ func ParseAdFromSearchResult(raw map[string]interface{}) (*Ad, []string) {
 	if v := getNestedString(raw, "ad-status", "value"); v != "" {
 		ad.AdStatus = v
 	}
+	if v, ok := raw["ad-type"].(string); ok && v != "" {
+		ad.AdType = v
+	}
+	if v := getNestedString(raw, "price", "price-type", "value"); v != "" {
+		ad.PriceType = v
+	}
 	if v := getNestedString(raw, "poster-type", "value"); v != "" {
 		ad.PosterType = v
 	}
@@ -407,8 +436,25 @@ func ParseAdFromSearchResult(raw map[string]interface{}) (*Ad, []string) {
 		ad.LastEditDate = v
 	}
 	if buyNow, ok := raw["buy-now"].(map[string]interface{}); ok {
-		if sel, ok := buyNow["selected"].(string); ok && sel == "true" {
+		if enabled, ok := buyNow["buy-now-enabled"].(string); ok && enabled == "true" {
 			ad.BuyNowEnabled = true
+		}
+		if sel, ok := buyNow["selected"].(string); ok && sel == "true" {
+			ad.BuyNowSelected = true
+		}
+		if price, ok := buyNow["price"].(map[string]interface{}); ok {
+			if amt, ok := price["amount"].(map[string]interface{}); ok {
+				if v, ok := amt["value"].(float64); ok {
+					ad.BuyNowPrice = v
+				}
+			}
+		}
+	}
+	if rating, ok := raw["user-rating"].(map[string]interface{}); ok {
+		if avg, ok := rating["averageRating"].(map[string]interface{}); ok {
+			if v, ok := avg["value"].(float64); ok {
+				ad.UserRating = v
+			}
 		}
 	}
 
