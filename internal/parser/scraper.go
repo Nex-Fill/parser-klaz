@@ -764,7 +764,7 @@ func (s *Scraper) trackChanges(ctx context.Context, old, new *kl.Ad) {
 		case "ACTIVE":
 			new.IsActive = true
 			new.IsDeleted = false
-		case "PAUSED", "RESERVED":
+		case "RESERVED":
 			new.IsActive = false
 		case "SOLD", "CLOSED", "DELETED":
 			new.IsActive = false

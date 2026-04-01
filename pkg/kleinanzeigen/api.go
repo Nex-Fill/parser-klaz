@@ -208,7 +208,11 @@ func ParseAdResponse(body []byte) (*Ad, []string, error) {
 		ad.CategoryID = v
 	}
 	if v := getNestedString(value, "ad-status", "value"); v != "" {
-		ad.AdStatus = v
+		if v == "PAUSED" {
+			ad.AdStatus = "RESERVED"
+		} else {
+			ad.AdStatus = v
+		}
 	}
 	if v := getNestedString(value, "ad-type", "value"); v != "" {
 		ad.AdType = v
