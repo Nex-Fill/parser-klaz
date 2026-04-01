@@ -263,7 +263,8 @@ func (p *Postgres) SearchAdsWithMetrics(ctx context.Context, req kl.AdSearchRequ
 		}
 	}
 	if len(req.CategoryIDs) > 0 {
-		add("a.category_id = ANY($%d)", req.CategoryIDs)
+		expanded := p.expandCategoryIDs(ctx, req.CategoryIDs)
+		add("a.category_id = ANY($%d)", expanded)
 	}
 	if len(req.LocationIDs) > 0 {
 		add("a.location_id = ANY($%d)", req.LocationIDs)
@@ -622,6 +623,30 @@ func splitSearchWords(q string) []string {
 		return []string{strings.TrimSpace(q)}
 	}
 	return words
+}
+
+func (p *Postgres) expandCategoryIDs(ctx context.Context, ids []string) []string {
+	rows, err := p.pool.Query(ctx, `
+		SELECT id FROM categories WHERE id = ANY($1)
+		UNION
+		SELECT id FROM categories WHERE parent_id = ANY($1)`, ids)
+	if err != nil {
+		return ids
+	}
+	defer rows.Close()
+	seen := make(map[string]bool)
+	var result []string
+	for rows.Next() {
+		var id string
+		if rows.Scan(&id) == nil && !seen[id] {
+			seen[id] = true
+			result = append(result, id)
+		}
+	}
+	if len(result) == 0 {
+		return ids
+	}
+	return result
 }
 
 func joinWhere(parts []string) string {
