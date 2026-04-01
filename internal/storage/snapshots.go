@@ -507,7 +507,9 @@ func (p *Postgres) SearchAdsWithMetrics(ctx context.Context, req kl.AdSearchRequ
 			CASE WHEN a.is_deleted AND a.deleted_at IS NOT NULL AND a.first_seen_at IS NOT NULL
 				THEN ROUND(EXTRACT(EPOCH FROM (a.deleted_at - a.first_seen_at)) / 3600.0, 1)
 				ELSE NULL END,
-			COALESCE(array_length(a.image_urls, 1), 0)
+			COALESCE(array_length(a.image_urls, 1), 0),
+			ROUND(EXTRACT(EPOCH FROM (NOW() - COALESCE(a.first_seen_at, a.created_at))) / 3600.0, 1),
+			a.last_checked_at
 		FROM ads a
 		LEFT JOIN ad_metrics m ON m.ad_id = a.id
 		WHERE %s
@@ -543,6 +545,7 @@ func (p *Postgres) SearchAdsWithMetrics(ctx context.Context, req kl.AdSearchRequ
 			&thumbnail,
 			&aw.EngagementRate, &aw.DemandScore, &aw.FreshnessBoost,
 			&aw.HoursToSold, &aw.PhotoCount,
+			&aw.HoursAlive, &aw.LastCheckedAt,
 		); err != nil {
 			log.Warn().Err(err).Str("ad_id", aw.ID).Msg("search scan error")
 			continue

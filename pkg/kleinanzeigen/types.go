@@ -291,8 +291,10 @@ type AdWithMetrics struct {
 	EngagementRate float64    `json:"engagement_rate"`
 	DemandScore    float64    `json:"demand_score"`
 	FreshnessBoost float64   `json:"freshness_boost"`
-	HoursToSold    *float64   `json:"hours_to_sold,omitempty"`
-	PhotoCount     int        `json:"photo_count"`
+	HoursToSold    *float64    `json:"hours_to_sold,omitempty"`
+	PhotoCount     int         `json:"photo_count"`
+	HoursAlive     float64    `json:"hours_alive"`
+	LastCheckedAt  *time.Time `json:"last_checked_at,omitempty"`
 }
 
 type ChartPoint struct {
