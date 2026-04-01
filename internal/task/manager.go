@@ -245,6 +245,8 @@ func (m *Manager) StartCategorySyncLoop(ctx context.Context) {
 		go func() {
 			time.Sleep(2 * time.Minute)
 			m.scraper.SyncCategoryAttributes(ctx)
+			time.Sleep(1 * time.Minute)
+			m.scraper.BackfillShippingType(ctx)
 		}()
 		ticker := time.NewTicker(24 * time.Hour)
 		defer ticker.Stop()

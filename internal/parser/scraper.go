@@ -860,6 +860,70 @@ func (s *Scraper) LoadMissingImages(ctx context.Context, batchSize int) (int, er
 	return len(ids), nil
 }
 
+// ==================== BACKFILL SHIPPING TYPE ====================
+
+func (s *Scraper) BackfillShippingType(ctx context.Context) {
+	cats, _ := s.db.GetAllCategories(ctx)
+	log.Info().Int("categories", len(cats)).Msg("backfill shipping_type: starting")
+	var total int
+
+	for _, cat := range cats {
+		if cat.HasChildren {
+			continue
+		}
+		select {
+		case <-ctx.Done():
+			return
+		default:
+		}
+
+		meta := s.getSubcategoryAttributes(ctx, cat.ID)
+		var versandName string
+		for _, a := range meta {
+			if strings.HasSuffix(a.name, ".versand") {
+				versandName = a.name
+				break
+			}
+		}
+		if versandName == "" {
+			continue
+		}
+
+		for _, shippingVal := range []struct {
+			apiVal  string
+			dbVal   string
+		}{{"ja", "SHIPPING"}, {"nein", "PICKUP"}} {
+			for page := 0; page < 100; page++ {
+				params := kl.SearchParams{
+					CategoryID: cat.ID,
+					Page:       page,
+					Size:       100,
+					Extra:      map[string]string{versandName: shippingVal.apiVal},
+				}
+				result, err := s.searchAds(ctx, params)
+				if err != nil || len(result.Ads) == 0 {
+					break
+				}
+
+				var ids []string
+				for _, raw := range result.Ads {
+					if raw.ID != "" {
+						ids = append(ids, raw.ID)
+					}
+				}
+				if len(ids) > 0 {
+					s.db.SetShippingType(ctx, ids, shippingVal.dbVal)
+					total += len(ids)
+				}
+				if len(result.Ads) < 100 {
+					break
+				}
+			}
+		}
+	}
+	log.Info().Int("updated", total).Msg("backfill shipping_type: done")
+}
+
 // ==================== SYNC CATEGORY ATTRIBUTES ====================
 
 func (s *Scraper) SyncCategoryAttributes(ctx context.Context) error {

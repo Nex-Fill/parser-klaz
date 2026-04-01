@@ -316,6 +316,10 @@ func (p *Postgres) GetCategoryAttributes(ctx context.Context, catID string) ([]m
 	return result, nil
 }
 
+func (p *Postgres) SetShippingType(ctx context.Context, ids []string, shippingType string) {
+	p.pool.Exec(ctx, `UPDATE ads SET shipping_type = $2 WHERE id = ANY($1) AND (shipping_type = '' OR shipping_type IS NULL)`, ids, shippingType)
+}
+
 func (p *Postgres) SetStatusChangedAt(ctx context.Context, adID string, at time.Time) {
 	p.pool.Exec(ctx, `UPDATE ads SET status_changed_at = $2 WHERE id = $1`, adID, at)
 }
