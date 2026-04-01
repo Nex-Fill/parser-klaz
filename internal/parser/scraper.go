@@ -1267,6 +1267,7 @@ func (s *Scraper) BatchCountersUpdateTier(ctx context.Context, tier string) erro
 				defer wg.Done()
 
 				var viewsMap, favMap map[string]int
+				var viewsOk, favOk bool
 				var vwg sync.WaitGroup
 
 				vwg.Add(2)
@@ -1275,6 +1276,7 @@ func (s *Scraper) BatchCountersUpdateTier(ctx context.Context, tier string) erro
 					body, err := s.doRequest(ctx, kl.BuildBatchViewsURL(batch))
 					if err == nil {
 						viewsMap = kl.ParseCountersResponse(body)
+						viewsOk = true
 					}
 				}()
 				go func() {
@@ -1282,37 +1284,47 @@ func (s *Scraper) BatchCountersUpdateTier(ctx context.Context, tier string) erro
 					body, err := s.doRequest(ctx, kl.BuildBatchFavoritesURL(batch))
 					if err == nil {
 						favMap = kl.ParseCountersResponse(body)
+						favOk = true
 					}
 				}()
 				vwg.Wait()
 
-				bothFailed := viewsMap == nil && favMap == nil
-				if viewsMap == nil {
-					viewsMap = make(map[string]int)
-				}
-				if favMap == nil {
-					favMap = make(map[string]int)
-				}
-
-				if bothFailed {
+				if !viewsOk && !favOk {
 					return
 				}
 
+				safeViews := make(map[string]int)
+				safeFavs := make(map[string]int)
+
 				for _, id := range batch {
-					v := viewsMap[id]
-					f := favMap[id]
-					if v > 0 {
+					v := 0
+					f := 0
+					if viewsOk {
+						v = viewsMap[id]
+					}
+					if favOk {
+						f = favMap[id]
+					}
+
+					if viewsOk && v > 0 {
+						safeViews[id] = v
+					}
+					if favOk {
+						safeFavs[id] = f
+					}
+
+					if v > 0 && favOk {
 						s.snapBuf.RecordFull(id, v, f, 0)
 					}
 				}
 
-				if err := s.db.BatchUpdateCounters(ctx, viewsMap, favMap); err != nil {
+				if err := s.db.BatchUpdateCounters(ctx, safeViews, safeFavs); err != nil {
 					log.Warn().Err(err).Msg("batch counters DB update failed")
 				}
 
 				mu.Lock()
-				totalViews += len(viewsMap)
-				totalFav += len(favMap)
+				totalViews += len(safeViews)
+				totalFav += len(safeFavs)
 				mu.Unlock()
 			})
 		}
