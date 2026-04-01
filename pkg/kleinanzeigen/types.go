@@ -261,6 +261,13 @@ type AdSearchRequest struct {
 	ItemCondition  string            `json:"item_condition,omitempty"`
 	Attributes     map[string]string `json:"attributes,omitempty"`
 
+	DemandScoreMin    *float64 `json:"demand_score_min,omitempty"`
+	FreshnessBoostMin *float64 `json:"freshness_boost_min,omitempty"`
+	EngagementRateMin *float64 `json:"engagement_rate_min,omitempty"`
+	PhotoCountMin     *int     `json:"photo_count_min,omitempty"`
+	QDescription      string   `json:"q_description,omitempty"`
+	ZipCode           string   `json:"zip_code,omitempty"`
+
 	SellerAdsMin *int `json:"seller_ads_min,omitempty"`
 	SellerAdsMax *int `json:"seller_ads_max,omitempty"`
 
@@ -275,8 +282,13 @@ type AdSearchRequest struct {
 // AdWithMetrics — what the search API returns: ad + its live metrics inline
 type AdWithMetrics struct {
 	Ad
-	Metrics   *AdMetrics `json:"metrics,omitempty"`
-	Thumbnail string     `json:"thumbnail,omitempty"`
+	Metrics        *AdMetrics `json:"metrics,omitempty"`
+	Thumbnail      string     `json:"thumbnail,omitempty"`
+	EngagementRate float64    `json:"engagement_rate"`
+	DemandScore    float64    `json:"demand_score"`
+	FreshnessBoost float64   `json:"freshness_boost"`
+	HoursToSold    *float64   `json:"hours_to_sold,omitempty"`
+	PhotoCount     int        `json:"photo_count"`
 }
 
 type ChartPoint struct {
