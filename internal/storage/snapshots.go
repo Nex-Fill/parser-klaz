@@ -405,10 +405,10 @@ func (p *Postgres) SearchAdsWithMetrics(ctx context.Context, req kl.AdSearchRequ
 
 	metricsSorts := map[string]bool{
 		"views_delta_1h": true, "views_delta_24h": true, "views_delta_7d": true,
-		"views_per_hour": true, "snapshot_count": true,
+		"views_per_hour": true,
 	}
 	if metricsSorts[req.SortBy] {
-		where = append(where, "COALESCE(m.snapshot_count, 0) >= 2")
+		where = append(where, "a.views > 0")
 	}
 
 	whereSQL := joinWhere(where)
