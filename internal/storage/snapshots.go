@@ -263,8 +263,9 @@ func (p *Postgres) SearchAdsWithMetrics(ctx context.Context, req kl.AdSearchRequ
 		}
 	}
 	if len(req.CategoryIDs) > 0 {
-		where = append(where, fmt.Sprintf("(a.category_id = ANY($%d::text[]) OR a.category_id IN (SELECT id FROM categories WHERE parent_id = ANY($%d::text[])))", n, n))
-		args = append(args, req.CategoryIDs)
+		expanded := p.expandCategoryIDs(ctx, req.CategoryIDs)
+		where = append(where, fmt.Sprintf("a.category_id = ANY($%d::text[])", n))
+		args = append(args, expanded)
 		n++
 	}
 	if len(req.LocationIDs) > 0 {
@@ -620,9 +621,9 @@ func splitSearchWords(q string) []string {
 
 func (p *Postgres) expandCategoryIDs(ctx context.Context, ids []string) []string {
 	rows, err := p.pool.Query(ctx, `
-		SELECT id FROM categories WHERE id = ANY($1)
+		SELECT id FROM categories WHERE id = ANY($1::text[])
 		UNION
-		SELECT id FROM categories WHERE parent_id = ANY($1)`, ids)
+		SELECT id FROM categories WHERE parent_id = ANY($1::text[])`, ids)
 	if err != nil {
 		return ids
 	}
