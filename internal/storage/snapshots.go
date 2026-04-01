@@ -388,7 +388,7 @@ func (p *Postgres) SearchAdsWithMetrics(ctx context.Context, req kl.AdSearchRequ
 		n++
 	}
 	if req.EngagementRateMin != nil {
-		where = append(where, fmt.Sprintf(`CASE WHEN COALESCE(a.views,0)>0 THEN COALESCE(a.favorites,0)::numeric/a.views*100 ELSE 0 END >= $%d`, n))
+		where = append(where, fmt.Sprintf(`COALESCE(a.views,0) >= 10 AND LEAST(COALESCE(a.favorites,0)::numeric/GREATEST(a.views,1)*100, 100) >= $%d`, n))
 		args = append(args, *req.EngagementRateMin)
 		n++
 	}
@@ -421,7 +421,7 @@ func (p *Postgres) SearchAdsWithMetrics(ctx context.Context, req kl.AdSearchRequ
 		"price": "a.price_eur", "views": "a.views", "favorites": "a.favorites",
 		"favorites_delta_1h": "COALESCE(m.favorites_delta_1h, 0)", "favorites_delta_24h": "COALESCE(m.favorites_delta_24h, 0)",
 		"favorites_per_hour": "COALESCE(m.favorites_per_hour, 0)",
-		"engagement_rate": "CASE WHEN COALESCE(a.views,0)>0 THEN COALESCE(a.favorites,0)::numeric/a.views*100 ELSE 0 END",
+		"engagement_rate": "CASE WHEN COALESCE(a.views,0)>=10 THEN LEAST(COALESCE(a.favorites,0)::numeric/a.views*100,100) ELSE 0 END",
 		"demand_score": "CASE WHEN COALESCE(a.views,0)=0 THEN 0 ELSE LEAST(100,(LEAST(COALESCE(a.favorites,0)::numeric/GREATEST(a.views,1)*100,20)*2.5+LEAST(COALESCE(m.views_per_hour,0),50)*1.0+LEAST(COALESCE(a.favorites,0),100)*0.5)) END",
 		"freshness_boost": "CASE WHEN a.first_seen_at>=NOW()-INTERVAL '3 hours' AND COALESCE(a.views,0)>0 THEN LEAST(100,(COALESCE(m.views_per_hour,0)*5+COALESCE(a.favorites,0)*20)::numeric) ELSE 0 END",
 		"hours_to_sold": "CASE WHEN a.is_deleted AND a.deleted_at IS NOT NULL THEN EXTRACT(EPOCH FROM (a.deleted_at-a.first_seen_at))/3600.0 ELSE NULL END",
@@ -498,7 +498,7 @@ func (p *Postgres) SearchAdsWithMetrics(ctx context.Context, req kl.AdSearchRequ
 				(SELECT cdn_url FROM ad_images WHERE ad_id = a.id AND position = 0 LIMIT 1),
 				a.image_urls[1]
 			),
-			CASE WHEN COALESCE(a.views, 0) > 0 THEN ROUND(COALESCE(a.favorites, 0)::numeric / a.views * 100, 2) ELSE 0 END,
+			CASE WHEN COALESCE(a.views, 0) >= 10 THEN ROUND(LEAST(COALESCE(a.favorites, 0)::numeric / a.views * 100, 100), 2) ELSE 0 END,
 			CASE
 				WHEN COALESCE(a.views, 0) = 0 THEN 0
 				ELSE LEAST(100, ROUND((
