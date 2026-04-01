@@ -263,9 +263,8 @@ func (p *Postgres) SearchAdsWithMetrics(ctx context.Context, req kl.AdSearchRequ
 		}
 	}
 	if len(req.CategoryIDs) > 0 {
-		expanded := p.expandCategoryIDs(ctx, req.CategoryIDs)
-		where = append(where, fmt.Sprintf("a.category_id = ANY($%d::text[])", n))
-		args = append(args, expanded)
+		where = append(where, fmt.Sprintf("(a.category_id = ANY($%d::text[]) OR a.category_id IN (SELECT id FROM categories WHERE parent_id = ANY($%d::text[])))", n, n))
+		args = append(args, req.CategoryIDs)
 		n++
 	}
 	if len(req.LocationIDs) > 0 {
