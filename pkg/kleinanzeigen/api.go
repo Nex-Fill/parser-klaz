@@ -271,6 +271,25 @@ func ParseAdResponse(body []byte) (*Ad, []string, error) {
 				if v, ok := loc["id"].(string); ok {
 					ad.LocationID = v
 				}
+				if v := getNestedString(loc, "localized-name", "value"); v != "" {
+					ad.City = v
+				}
+			}
+		}
+	}
+	if addr, ok := value["ad-address"].(map[string]interface{}); ok {
+		if v := getNestedString(addr, "zip-code", "value"); v != "" {
+			ad.ZipCode = v
+		}
+		if v := getNestedString(addr, "latitude", "value"); v != "" {
+			fmt.Sscanf(v, "%f", &ad.Latitude)
+		}
+		if v := getNestedString(addr, "longitude", "value"); v != "" {
+			fmt.Sscanf(v, "%f", &ad.Longitude)
+		}
+		if ad.City == "" {
+			if v := getNestedString(addr, "state", "value"); v != "" {
+				ad.City = v
 			}
 		}
 	}
@@ -429,6 +448,25 @@ func ParseAdFromSearchResult(raw map[string]interface{}) (*Ad, []string) {
 				if v, ok := loc["id"].(string); ok {
 					ad.LocationID = v
 				}
+				if v := getNestedString(loc, "localized-name", "value"); v != "" {
+					ad.City = v
+				}
+			}
+		}
+	}
+	if addr, ok := raw["ad-address"].(map[string]interface{}); ok {
+		if v := getNestedString(addr, "zip-code", "value"); v != "" {
+			ad.ZipCode = v
+		}
+		if v := getNestedString(addr, "latitude", "value"); v != "" {
+			fmt.Sscanf(v, "%f", &ad.Latitude)
+		}
+		if v := getNestedString(addr, "longitude", "value"); v != "" {
+			fmt.Sscanf(v, "%f", &ad.Longitude)
+		}
+		if ad.City == "" {
+			if v := getNestedString(addr, "state", "value"); v != "" {
+				ad.City = v
 			}
 		}
 	}

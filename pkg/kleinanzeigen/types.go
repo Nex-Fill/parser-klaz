@@ -30,6 +30,10 @@ type Ad struct {
 	BuyNowSelected    bool       `json:"buy_now_selected" db:"buy_now_selected"`
 	BuyNowPrice       float64    `json:"buy_now_price" db:"buy_now_price"`
 	UserRating        float64    `json:"user_rating" db:"user_rating"`
+	ZipCode           string     `json:"zip_code" db:"zip_code"`
+	City              string     `json:"city" db:"city"`
+	Latitude          float64    `json:"latitude,omitempty" db:"latitude"`
+	Longitude         float64    `json:"longitude,omitempty" db:"longitude"`
 	IsActive       bool       `json:"is_active" db:"is_active"`
 	IsDeleted      bool       `json:"is_deleted" db:"is_deleted"`
 	DeletedAt      *time.Time `json:"deleted_at,omitempty" db:"deleted_at"`
