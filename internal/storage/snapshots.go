@@ -302,7 +302,7 @@ func (p *Postgres) SearchAdsWithMetrics(ctx context.Context, req kl.AdSearchRequ
 	if req.DateTo != "" {
 		dateTo := req.DateTo
 		if len(dateTo) == 10 {
-			dateTo += "T23:59:59.999+9999"
+			dateTo += "T23:59:59.999+2359"
 		}
 		add("a.start_date <= $%d", dateTo)
 	}
