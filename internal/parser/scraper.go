@@ -1301,7 +1301,7 @@ func (s *Scraper) BatchCountersUpdateTier(ctx context.Context, tier string) erro
 				for _, id := range batch {
 					v := viewsMap[id]
 					f := favMap[id]
-					if v > 0 || f > 0 {
+					if v > 0 {
 						s.snapBuf.RecordFull(id, v, f, 0)
 					}
 				}
