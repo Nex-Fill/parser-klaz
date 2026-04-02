@@ -654,6 +654,7 @@ func (p *Postgres) expandCategoryIDs(ctx context.Context, ids []string) []string
 			}
 		}
 	}
+	log.Info().Int("input", len(ids)).Int("expanded", len(result)).Int("children_map", len(children)).Strs("ids", ids).Strs("result", result).Msg("expandCategoryIDs")
 	if len(result) == 0 {
 		return ids
 	}
