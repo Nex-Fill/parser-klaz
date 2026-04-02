@@ -264,8 +264,13 @@ func (p *Postgres) SearchAdsWithMetrics(ctx context.Context, req kl.AdSearchRequ
 	}
 	if len(req.CategoryIDs) > 0 {
 		expanded := p.expandCategoryIDs(ctx, req.CategoryIDs)
-		where = append(where, fmt.Sprintf("a.category_id = ANY($%d)", n))
-		args = append(args, expanded)
+		placeholders := make([]string, len(expanded))
+		for i, id := range expanded {
+			placeholders[i] = fmt.Sprintf("$%d", n)
+			args = append(args, id)
+			n++
+		}
+		where = append(where, "a.category_id IN ("+strings.Join(placeholders, ",")+")")
 		n++
 	}
 	if len(req.LocationIDs) > 0 {
