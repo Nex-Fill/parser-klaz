@@ -455,7 +455,12 @@ func (p *Postgres) SearchAdsWithMetrics(ctx context.Context, req kl.AdSearchRequ
 	copy(countArgs, args)
 
 	var total int
-	p.pool.QueryRow(ctx, "SELECT COUNT(*) FROM ads a LEFT JOIN ad_metrics m ON m.ad_id = a.id WHERE "+whereSQL, countArgs...).Scan(&total)
+	needsMetricsJoin := req.ViewsDelta1hMin != nil || req.ViewsDelta1hMax != nil || req.ViewsDelta24hMin != nil || req.ViewsDelta24hMax != nil || req.ViewsPerHourMin != nil || req.FavoritesDelta1hMin != nil || req.FavoritesDelta1hMax != nil || req.FavoritesDelta24hMin != nil || req.FavoritesDelta24hMax != nil || req.FavoritesPerHourMin != nil || req.FreshnessBoostMin != nil || (req.PriceDropped != nil && *req.PriceDropped)
+	if needsMetricsJoin {
+		p.pool.QueryRow(ctx, "SELECT COUNT(*) FROM ads a LEFT JOIN ad_metrics m ON m.ad_id = a.id WHERE "+whereSQL, countArgs...).Scan(&total)
+	} else {
+		p.pool.QueryRow(ctx, "SELECT COUNT(*) FROM ads a WHERE "+whereSQL, countArgs...).Scan(&total)
+	}
 
 	if hasTextQuery && req.SortBy == "" {
 		sortCol = "CASE WHEN a.title ILIKE $" + fmt.Sprintf("%d", n) + " THEN 0 ELSE 1 END, a.views"
@@ -620,21 +625,30 @@ func splitSearchWords(q string) []string {
 }
 
 func (p *Postgres) expandCategoryIDs(ctx context.Context, ids []string) []string {
-	rows, err := p.pool.Query(ctx, `
-		SELECT id FROM categories WHERE id = ANY($1::text[])
-		UNION
-		SELECT id FROM categories WHERE parent_id = ANY($1::text[])`, ids)
+	rows, err := p.pool.Query(ctx, `SELECT id, parent_id FROM categories`)
 	if err != nil {
 		return ids
 	}
 	defer rows.Close()
+	children := make(map[string][]string)
+	for rows.Next() {
+		var id, parentID string
+		if rows.Scan(&id, &parentID) == nil && parentID != "" {
+			children[parentID] = append(children[parentID], id)
+		}
+	}
 	seen := make(map[string]bool)
 	var result []string
-	for rows.Next() {
-		var id string
-		if rows.Scan(&id) == nil && !seen[id] {
+	for _, id := range ids {
+		if !seen[id] {
 			seen[id] = true
 			result = append(result, id)
+		}
+		for _, child := range children[id] {
+			if !seen[child] {
+				seen[child] = true
+				result = append(result, child)
+			}
 		}
 	}
 	if len(result) == 0 {
