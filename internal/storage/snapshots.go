@@ -628,17 +628,16 @@ func splitSearchWords(q string) []string {
 }
 
 func (p *Postgres) expandCategoryIDs(ctx context.Context, ids []string) []string {
-	rows, err := p.pool.Query(ctx, `SELECT id, parent_id FROM categories`)
+	rows, err := p.pool.Query(ctx, `SELECT id, COALESCE(parent_id, '') FROM categories`)
 	if err != nil {
 		return ids
 	}
 	defer rows.Close()
 	children := make(map[string][]string)
 	for rows.Next() {
-		var id string
-		var parentID *string
-		if rows.Scan(&id, &parentID) == nil && parentID != nil && *parentID != "" {
-			children[*parentID] = append(children[*parentID], id)
+		var id, parentID string
+		if rows.Scan(&id, &parentID) == nil && parentID != "" {
+			children[parentID] = append(children[parentID], id)
 		}
 	}
 	seen := make(map[string]bool)
