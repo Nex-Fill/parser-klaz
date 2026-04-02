@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math"
 	"sort"
 	"time"
 
@@ -178,10 +179,14 @@ func (p *Postgres) BatchUpdateCounters(ctx context.Context, views map[string]int
 	for id, v := range views {
 		f := favorites[id]
 		if v > 0 {
+			er := float64(0)
+			if v >= 10 && f > 0 {
+				er = math.Min(float64(f)/float64(v)*100, 100)
+			}
+			ds := math.Min(100, math.Min(float64(f)/math.Max(float64(v), 1)*100, 20)*2.5+math.Min(float64(f), 100)*0.5)
 			batch.Queue(`UPDATE ads SET views = $2, favorites = $3, last_checked_at = NOW(), updated_at = NOW(),
-				engagement_rate = CASE WHEN $2 >= 10 THEN LEAST($3::numeric / $2 * 100, 100) ELSE 0 END,
-				demand_score = LEAST(100, (LEAST($3::numeric / GREATEST($2, 1) * 100, 20) * 2.5 + LEAST(COALESCE((SELECT views_per_hour FROM ad_metrics WHERE ad_id = $1), 0), 50) * 1.0 + LEAST($3, 100) * 0.5))
-				WHERE id = $1`, id, v, f)
+				engagement_rate = $4, demand_score = $5
+				WHERE id = $1`, id, v, f, er, ds)
 		} else {
 			batch.Queue(`UPDATE ads SET favorites = $2, last_checked_at = NOW(), updated_at = NOW() WHERE id = $1`, id, f)
 		}
