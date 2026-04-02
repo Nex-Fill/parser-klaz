@@ -456,7 +456,10 @@ func (p *Postgres) SearchAdsWithMetrics(ctx context.Context, req kl.AdSearchRequ
 
 	var total int
 	needsMetricsJoin := req.ViewsDelta1hMin != nil || req.ViewsDelta1hMax != nil || req.ViewsDelta24hMin != nil || req.ViewsDelta24hMax != nil || req.ViewsPerHourMin != nil || req.FavoritesDelta1hMin != nil || req.FavoritesDelta1hMax != nil || req.FavoritesDelta24hMin != nil || req.FavoritesDelta24hMax != nil || req.FavoritesPerHourMin != nil || req.FreshnessBoostMin != nil || (req.PriceDropped != nil && *req.PriceDropped)
-	if needsMetricsJoin {
+	hasFilters := len(args) > 0
+	if !hasFilters {
+		p.pool.QueryRow(ctx, "SELECT reltuples::bigint FROM pg_class WHERE relname = 'ads'").Scan(&total)
+	} else if needsMetricsJoin {
 		p.pool.QueryRow(ctx, "SELECT COUNT(*) FROM ads a LEFT JOIN ad_metrics m ON m.ad_id = a.id WHERE "+whereSQL, countArgs...).Scan(&total)
 	} else {
 		p.pool.QueryRow(ctx, "SELECT COUNT(*) FROM ads a WHERE "+whereSQL, countArgs...).Scan(&total)
@@ -632,9 +635,10 @@ func (p *Postgres) expandCategoryIDs(ctx context.Context, ids []string) []string
 	defer rows.Close()
 	children := make(map[string][]string)
 	for rows.Next() {
-		var id, parentID string
-		if rows.Scan(&id, &parentID) == nil && parentID != "" {
-			children[parentID] = append(children[parentID], id)
+		var id string
+		var parentID *string
+		if rows.Scan(&id, &parentID) == nil && parentID != nil && *parentID != "" {
+			children[*parentID] = append(children[*parentID], id)
 		}
 	}
 	seen := make(map[string]bool)
