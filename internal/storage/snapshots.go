@@ -644,7 +644,7 @@ func (p *Postgres) expandCategoryIDs(ctx context.Context, ids []string) []string
 	children := make(map[string][]string)
 	for rows.Next() {
 		var id, parentID string
-		if rows.Scan(&id, &parentID) == nil && parentID != "" {
+		if rows.Scan(&id, &parentID) == nil && parentID != "" && parentID != "0" {
 			children[parentID] = append(children[parentID], id)
 		}
 	}
