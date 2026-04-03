@@ -83,6 +83,21 @@ func (m *Manager) StartBatchCountersLoop(ctx context.Context) {
 }
 
 // StartAutoParseLoop continuously parses ALL categories for new ads.
+func (m *Manager) StartStatusCheckLoop(ctx context.Context) {
+	go func() {
+		time.Sleep(10 * time.Minute)
+		for {
+			m.scraper.StatusCheckSample(ctx, 5000)
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(1 * time.Hour):
+			}
+		}
+	}()
+	log.Info().Msg("status check loop started (5000 random ads/hour)")
+}
+
 // First run: deep scan (50 pages per category) to fill the database.
 // Subsequent runs: shallow scan (1 page) to catch only new ads.
 // Cycle: parse → wait 10 min → repeat.

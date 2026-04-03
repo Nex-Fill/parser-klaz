@@ -86,6 +86,7 @@ func main() {
 	taskMgr.StartAutoParseLoop(ctx)
 	taskMgr.StartNewAdsWatcher(ctx)
 	taskMgr.StartBatchCountersLoop(ctx)
+	taskMgr.StartStatusCheckLoop(ctx)
 	taskMgr.StartImageLoaderLoop(ctx)
 	taskMgr.StartMetricsRefreshLoop(ctx)
 	taskMgr.StartCategorySyncLoop(ctx)

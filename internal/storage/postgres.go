@@ -328,6 +328,22 @@ func (p *Postgres) GetCategoryAttributes(ctx context.Context, catID string) ([]m
 	return result, nil
 }
 
+func (p *Postgres) GetRandomActiveAdIDs(ctx context.Context, limit int) ([]string, error) {
+	rows, err := p.pool.Query(ctx, `SELECT id FROM ads WHERE is_active = true AND is_deleted = false ORDER BY RANDOM() LIMIT $1`, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var ids []string
+	for rows.Next() {
+		var id string
+		if rows.Scan(&id) == nil {
+			ids = append(ids, id)
+		}
+	}
+	return ids, nil
+}
+
 func (p *Postgres) SetShippingType(ctx context.Context, ids []string, shippingType string) {
 	p.pool.Exec(ctx, `UPDATE ads SET shipping_type = $2 WHERE id = ANY($1) AND (shipping_type = '' OR shipping_type IS NULL)`, ids, shippingType)
 }

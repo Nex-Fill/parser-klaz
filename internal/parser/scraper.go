@@ -924,6 +924,58 @@ func (s *Scraper) BackfillShippingType(ctx context.Context) {
 	log.Info().Int("updated", total).Msg("backfill shipping_type: done")
 }
 
+// ==================== STATUS CHECK (detect deleted via detail 404) ====================
+
+func (s *Scraper) StatusCheckSample(ctx context.Context, sampleSize int) (checked, deleted int) {
+	ids, err := s.db.GetRandomActiveAdIDs(ctx, sampleSize)
+	if err != nil || len(ids) == 0 {
+		return
+	}
+
+	log.Info().Int("sample", len(ids)).Msg("status check: starting")
+
+	var mu sync.Mutex
+	var wg sync.WaitGroup
+
+	for _, id := range ids {
+		id := id
+		wg.Add(1)
+		s.pool.Submit(func() {
+			defer wg.Done()
+			body, err := s.doRequest(ctx, kl.BuildAdURL(id))
+			mu.Lock()
+			checked++
+			mu.Unlock()
+
+			if err != nil {
+				if strings.Contains(err.Error(), "404_NOT_FOUND") {
+					s.db.MarkAdDeleted(ctx, id)
+					s.db.RecordHistory(ctx, id, "ad_status", "ACTIVE", "DELETED")
+					mu.Lock()
+					deleted++
+					mu.Unlock()
+				}
+				return
+			}
+
+			ad, _, parseErr := kl.ParseAdResponse(body)
+			if parseErr != nil || ad == nil {
+				return
+			}
+
+			existing, _ := s.db.GetAd(ctx, id)
+			if existing != nil && existing.AdStatus != ad.AdStatus {
+				s.trackChanges(ctx, existing, ad)
+				s.db.UpsertAd(ctx, ad)
+			}
+		})
+	}
+	wg.Wait()
+
+	log.Info().Int("checked", checked).Int("deleted", deleted).Msg("status check: complete")
+	return
+}
+
 // ==================== SYNC CATEGORY ATTRIBUTES ====================
 
 func (s *Scraper) SyncCategoryAttributes(ctx context.Context) error {
