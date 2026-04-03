@@ -275,7 +275,6 @@ func (p *Postgres) SearchAdsWithMetrics(ctx context.Context, req kl.AdSearchRequ
 			quoted[i] = "'" + safe + "'"
 		}
 		where = append(where, "a.category_id IN ("+strings.Join(quoted, ",")+")")
-		n++
 	}
 	if len(req.LocationIDs) > 0 {
 		add("a.location_id = ANY($%d)", req.LocationIDs)
