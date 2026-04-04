@@ -271,7 +271,7 @@ func (p *Postgres) SearchAdsWithMetrics(ctx context.Context, req kl.AdSearchRequ
 		}
 		if len(exWords) > 0 {
 			pattern := strings.Join(exWords, "|")
-			where = append(where, fmt.Sprintf("(a.title !~* $%d AND a.description !~* $%d)", n, n))
+			where = append(where, fmt.Sprintf("a.title !~* $%d", n))
 			args = append(args, pattern)
 			n++
 		}
