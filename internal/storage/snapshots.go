@@ -252,13 +252,27 @@ func (p *Postgres) SearchAdsWithMetrics(ctx context.Context, req kl.AdSearchRequ
 		}
 	}
 	if len(req.Exclude) > 0 {
+		var exWords []string
 		for _, ex := range req.Exclude {
 			ex = strings.TrimSpace(ex)
 			if ex == "" {
 				continue
 			}
-			where = append(where, fmt.Sprintf("(a.title NOT ILIKE $%d AND a.description NOT ILIKE $%d)", n, n))
-			args = append(args, "%"+ex+"%")
+			safe := strings.ReplaceAll(ex, "\\", "\\\\")
+			safe = strings.ReplaceAll(safe, ".", "\\.")
+			safe = strings.ReplaceAll(safe, "*", "\\*")
+			safe = strings.ReplaceAll(safe, "+", "\\+")
+			safe = strings.ReplaceAll(safe, "?", "\\?")
+			safe = strings.ReplaceAll(safe, "(", "\\(")
+			safe = strings.ReplaceAll(safe, ")", "\\)")
+			safe = strings.ReplaceAll(safe, "[", "\\[")
+			safe = strings.ReplaceAll(safe, "|", "\\|")
+			exWords = append(exWords, safe)
+		}
+		if len(exWords) > 0 {
+			pattern := strings.Join(exWords, "|")
+			where = append(where, fmt.Sprintf("(a.title !~* $%d AND a.description !~* $%d)", n, n))
+			args = append(args, pattern)
 			n++
 		}
 	}
